@@ -1,84 +1,118 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { supabase, type Profile } from '../lib/supabase';
-import { useAuth } from '../hooks/useSupabase';
 import { useQueryClient } from '@tanstack/react-query';
+import bcrypt from 'bcryptjs';
 
 type AuthContextType = {
   user: Profile | null;
   loading: boolean;
-  signUp: (email: string, password: string, name: string, username: string, role: 'supervisor' | 'tecnico') => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (username: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  createUser: (name: string, username: string, password: string, role: 'supervisor' | 'tecnico') => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+// Simple session storage key
+const SESSION_KEY = 'preventiva_session';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const { signUp, signIn, signOut, getSession, onAuthStateChange } = useAuth();
   const queryClient = useQueryClient();
 
-  const fetchProfile = async (userId: string) => {
+  // Check for existing session on load
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const session = localStorage.getItem(SESSION_KEY);
+        if (session) {
+          const { userId } = JSON.parse(session);
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+          if (!error && data) {
+            setUser(data as Profile);
+          } else {
+            localStorage.removeItem(SESSION_KEY);
+          }
+        }
+      } catch {
+        localStorage.removeItem(SESSION_KEY);
+      } finally {
+        setLoading(false);
+      }
+    };
+    initAuth();
+  }, []);
+
+  const signIn = async (username: string, password: string) => {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', userId)
+      .eq('username', username)
       .single();
-    if (!error && data) {
-      setUser(data as Profile);
-    } else {
-      setUser(null);
+
+    if (error || !data) {
+      throw new Error('Usuário não encontrado');
     }
-  };
 
-  const refreshUser = async () => {
-    const session = await getSession();
-    if (session?.user?.id) {
-      await fetchProfile(session.user.id);
-    } else {
-      setUser(null);
+    const profile = data as Profile & { password_hash?: string };
+
+    if (!profile.password_hash) {
+      throw new Error('Usuário sem senha configurada');
     }
-    setLoading(false);
+
+    const valid = await bcrypt.compare(password, profile.password_hash);
+    if (!valid) {
+      throw new Error('Senha incorreta');
+    }
+
+    // Remove password_hash from user object
+    const { password_hash: _, ...userWithoutHash } = profile;
+    setUser(userWithoutHash as Profile);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: profile.id }));
   };
 
-  useEffect(() => {
-    const initAuth = async () => {
-      const session = await getSession();
-      if (session?.user?.id) {
-        await fetchProfile(session.user.id);
-      }
-      setLoading(false);
-    };
-    initAuth();
-
-    const { data: { subscription } } = onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session?.user?.id) {
-        fetchProfile(session.user.id);
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        queryClient.clear();
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [onAuthStateChange, queryClient]);
-
-  const handleSignUp = async (email: string, password: string, name: string, username: string, role: 'supervisor' | 'tecnico') => {
-    await signUp(email, password, name, username, role);
+  const signOut = async () => {
+    setUser(null);
+    localStorage.removeItem(SESSION_KEY);
+    queryClient.clear();
   };
 
-  const handleSignIn = async (email: string, password: string) => {
-    await signIn(email, password);
-  };
+  const createUser = async (name: string, username: string, password: string, role: 'supervisor' | 'tecnico') => {
+    // Check if username exists
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', username)
+      .single();
 
-  const handleSignOut = async () => {
-    await signOut();
+    if (existing) {
+      throw new Error('Nome de usuário já existe');
+    }
+
+    const password_hash = await bcrypt.hash(password, 10);
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .insert({
+        name,
+        username,
+        role,
+        password_hash,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp: handleSignUp, signIn: handleSignIn, signOut: handleSignOut, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signOut, createUser }}>
       {children}
     </AuthContext.Provider>
   );

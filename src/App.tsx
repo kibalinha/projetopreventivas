@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent, useEffect } from "react";
 import "./App.css";
-import { supabase, type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
-import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useAuth } from "./hooks/useSupabase";
+import { type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
+import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity } from "./hooks/useSupabase";
 import { useAuthContext } from "./contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -163,7 +163,7 @@ function App() {
   const [issueFilter, setIssueFilter] = useState<"Todas" | NonConformityStatus>("Todas");
   const [issueTypeFilter, setIssueTypeFilter] = useState<"Todos" | "Todos os tipos" | BoardType>("Todos");
   const [newTechnicianName, setNewTechnicianName] = useState("");
-  const [newTechnicianEmail, setNewTechnicianEmail] = useState("");
+  const [newTechnicianUsername, setNewTechnicianUsername] = useState("");
   const [newTechnicianPassword, setNewTechnicianPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<UserRole>("tecnico");
 
@@ -430,7 +430,7 @@ function App() {
   }, [inspectionHistory, nonConformityList]);
 
   const isSupervisor = currentUser?.role === "supervisor";
-  const { signOut: authSignOut } = useAuthContext();
+  const { signOut: authSignOut, createUser } = useAuthContext();
 
   const handleLogout = async () => {
     await authSignOut();
@@ -439,19 +439,10 @@ function App() {
 
   const addTechnician = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!newTechnicianEmail || !newTechnicianPassword || !newTechnicianName) return;
-    await supabase.auth.signUp({
-      email: newTechnicianEmail,
-      password: newTechnicianPassword,
-      options: {
-        data: {
-          name: newTechnicianName,
-          role: newUserRole,
-        },
-      },
-    });
+    if (!newTechnicianName || !newTechnicianUsername || !newTechnicianPassword) return;
+    await createUser(newTechnicianName, newTechnicianUsername, newTechnicianPassword, newUserRole);
     setNewTechnicianName("");
-    setNewTechnicianEmail("");
+    setNewTechnicianUsername("");
     setNewTechnicianPassword("");
     setNewUserRole("tecnico");
   };
@@ -1099,7 +1090,7 @@ function App() {
               <form className="panel user-form" onSubmit={addTechnician}>
                 <h3>Cadastrar usuário</h3>
                 <label>Nome<input value={newTechnicianName} onChange={(event) => setNewTechnicianName(event.target.value)} placeholder="Nome completo" required /></label>
-                <label>E-mail<input type="email" value={newTechnicianEmail} onChange={(event) => setNewTechnicianEmail(event.target.value)} placeholder="usuario@exemplo.com" autoComplete="email" required /></label>
+                <label>Usuário<input type="text" value={newTechnicianUsername} onChange={(event) => setNewTechnicianUsername(event.target.value)} placeholder="nome.usuario" autoComplete="username" required /></label>
                 <label>Senha<input type="password" value={newTechnicianPassword} onChange={(event) => setNewTechnicianPassword(event.target.value)} placeholder="Senha de acesso" autoComplete="new-password" required /></label>
                 <label>Papel<select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value as UserRole)} required><option value="tecnico">Técnico</option><option value="supervisor">Supervisor</option></select></label>
                 <button className="primary-button" type="submit">Cadastrar usuário</button>
@@ -1108,15 +1099,14 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <h3>Perfis cadastrados</h3>
-                    <p>Usuários autenticados via Supabase Auth</p>
+                    <p>Usuários criados no sistema (senhas criptografadas)</p>
                   </div>
                 </div>
                 <div className="empty-state">
                   <span>ℹ</span>
-                  <strong>Gerenciamento via Supabase</strong>
+                  <strong>Gerenciamento interno</strong>
                   <p>
-                    Usuários são criados via e-mail/senha no Supabase Auth.
-                    Visualize e gerencie em: supabase.com/dashboard
+                    Usuários são criados diretamente no banco de dados com senha criptografada.
                   </p>
                 </div>
               </div>
@@ -1525,15 +1515,15 @@ function Activity({
 }
 
 function LoginScreen() {
-  const { signIn } = useAuth();
-  const [email, setEmail] = useState("");
+  const { signIn } = useAuthContext();
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-      await signIn(email, password);
+      await signIn(username, password);
     } catch (err: any) {
       setError(err.message || "Erro ao fazer login");
     }
@@ -1545,14 +1535,14 @@ function LoginScreen() {
         <div className="brand login-brand"><span className="brand-mark">P</span><span>Preventiva</span></div>
         <p className="eyebrow">BARRA SHOPPING SUL / MANUTENÇÃO</p>
         <h1>Acesse o sistema</h1>
-        <p className="login-subtitle">Entre com seu e-mail para executar ou administrar as preventivas.</p>
+        <p className="login-subtitle">Entre com seu usuário e senha para executar ou administrar as preventivas.</p>
         <form onSubmit={submit} className="login-form">
-          <label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="seu.email@exemplo.com" autoComplete="email" required /></label>
+          <label>Usuário<input type="text" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="seu.usuario" autoComplete="username" required /></label>
           <label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" autoComplete="current-password" required /></label>
           {error && <p className="login-error">{error}</p>}
           <button className="primary-button" type="submit">Entrar no sistema</button>
         </form>
-        <div className="login-help"><strong>Acesso via Supabase Auth</strong><span>E-mail e senha configurados no painel do Supabase</span></div>
+        <div className="login-help"><strong>Acesso interno</strong><span>Usuário e senha cadastrados no sistema</span></div>
       </section>
     </main>
   );
