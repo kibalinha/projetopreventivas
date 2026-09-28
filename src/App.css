@@ -319,3 +319,12 @@
 .icon-button.danger { color: #c9514b; background: #fff8f7; border: 1px solid #f0d2cf; border-radius: 6px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
 .icon-button.danger:hover { background: #ffebeb; }
 .icon-button.danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* History table styles */
+.history-table-container { overflow-x: auto; }
+.history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.history-table th { padding: 12px 16px; text-align: left; color: #99a4b2; background: #fafbfd; font-size: 11px; font-weight: 700; border-bottom: 1px solid var(--line); }
+.history-table td { padding: 12px 16px; border-bottom: 1px solid #edf0f4; color: #526176; }
+.history-table tbody tr:hover { background: #f7faff; }
+.ok-badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; color: #238457; background: #e2f6eb; }
+.issue-count { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; color: #c9514b; background: #ffebeb; }

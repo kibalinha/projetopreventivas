@@ -178,7 +178,7 @@ function App() {
   const deleteProfileMutation = useDeleteProfile();
 
   const [activeView, setActiveView] = useState<
-    "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users"
+    "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users" | "history"
   >("overview");
   const [selectedBoardId, setSelectedBoardId] = useState<string>("");
   const [newBoard, setNewBoard] = useState<Partial<Board>>({});
@@ -546,7 +546,7 @@ function App() {
   if (authLoading) return <div className="loading">Carregando...</div>;
   if (!currentUser) return <LoginScreen />;
 
-  const navigate = (view: "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users") => {
+  const navigate = (view: "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users" | "history") => {
     if (!isSupervisor && (view === "editBoards" || view === "users")) {
       setActiveView("overview");
       return;
@@ -596,6 +596,10 @@ function App() {
               className={activeView === "issues" ? "nav-item active" : "nav-item"}
               onClick={() => navigate("issues")}
             ><span>!</span> Não conformidades <b className="nav-count">{openIssues}</b></button>
+            <button
+              className={activeView === "history" ? "nav-item active" : "nav-item"}
+              onClick={() => navigate("history")}
+            ><span>⏱</span> Histórico de preventivas</button>
             {isSupervisor && (
             <button
               className={activeView === "users" ? "nav-item active" : "nav-item"}
@@ -1219,6 +1223,71 @@ function App() {
                   </div>
                 )}
               </div>
+            </div>
+          </section>
+        )}
+
+        {activeView === "history" && (
+          <section className="history-view">
+            <div className="view-toolbar">
+              <div>
+                <p className="eyebrow">REGISTRO DE PREVENTIVAS</p>
+                <h2>Histórico de preventivas realizadas</h2>
+                <p>Todas as inspeções concluídas com responsável e data</p>
+              </div>
+            </div>
+            <div className="panel history-table-container">
+              {inspectionHistory.length > 0 ? (
+                <table className="history-table">
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Quadro</th>
+                      <th>Local</th>
+                      <th>Tipo</th>
+                      <th>Realizado por</th>
+                      <th>Não conformidades</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inspectionHistory
+                      .sort((a, b) => parseBrDate(b.date) - parseBrDate(a.date))
+                      .map((inspection) => {
+                        const ncCount = nonConformityList.filter(
+                          (nc) => nc.inspection_id === inspection.id
+                        ).length;
+                        return (
+                          <tr key={inspection.id}>
+                            <td>{inspection.date}</td>
+                            <td>
+                              <strong>{inspection.board}</strong>
+                            </td>
+                            <td>{boards.find((b) => b.id === inspection.boardId)?.location || '-'}</td>
+                            <td>
+                              <span className="type-pill">
+                                {boards.find((b) => b.id === inspection.boardId)?.type || '-'}
+                              </span>
+                            </td>
+                            <td>{inspection.performedBy || '-'}</td>
+                            <td>
+                              {ncCount > 0 ? (
+                                <span className="issue-count">{ncCount} {ncCount === 1 ? 'item' : 'itens'}</span>
+                              ) : (
+                                <span className="ok-badge">✓ Sem não conformidades</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty-state">
+                  <span>⏱</span>
+                  <strong>Nenhuma preventiva realizada</strong>
+                  <p>As inspeções concluídas aparecerão aqui automaticamente.</p>
+                </div>
+              )}
             </div>
           </section>
         )}
