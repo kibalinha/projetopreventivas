@@ -224,6 +224,7 @@ function App() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const [cameraItemId, setCameraItemId] = useState<string | null>(null);
   const cameraRef = useRef<HTMLVideoElement>(null);
 
   // Swipe state for checklist navigation
@@ -262,82 +263,7 @@ function App() {
       window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
-  // Camera functions
-  const startCamera = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: cameraFacing },
-        audio: false,
-      });
-      setCameraStream(stream);
-      if (cameraRef.current) {
-        cameraRef.current.srcObject = stream;
-        await cameraRef.current.play();
-      }
-      setShowCamera(true);
-    } catch (err) {
-      console.error('Camera access denied:', err);
-      alert('Não foi possível acessar a câmera. Verifique as permissões.');
-    }
-  }, [cameraFacing]);
-
-  const stopCamera = useCallback(() => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-      setCameraStream(null);
-    }
-    setShowCamera(false);
-  }, [cameraStream]);
-
-  const capturePhoto = useCallback(async () => {
-    if (!cameraRef.current || !cameraStream) return null;
-    
-    const video = cameraRef.current;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    
-    ctx.drawImage(video, 0, 0);
-    const blob = await new Promise<Blob>((resolve) => {
-      canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.8);
-    });
-    
-    stopCamera();
-    
-    // Upload to Supabase Storage
-    try {
-      const ext = 'jpg';
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
-      const filePath = `inspections/${fileName}`;
-      
-      const { error } = await supabase.storage
-        .from('inspection-photos')
-        .upload(filePath, blob, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (error) throw error;
-
-      const { data: urlData } = supabase.storage
-        .from('inspection-photos')
-        .getPublicUrl(filePath);
-
-      return urlData.publicUrl;
-    } catch (err: any) {
-      console.error('Photo upload failed:', err);
-      alert('Erro ao enviar foto: ' + err.message);
-      return null;
-    }
-  }, [cameraStream, stopCamera]);
-
-  const flipCamera = useCallback(() => {
-    setCameraFacing(prev => prev === 'environment' ? 'user' : 'environment');
+};
   }, []);
 
   // Swipe handlers for checklist navigation
@@ -600,6 +526,83 @@ function App() {
       );
     }
   };
+
+  // Camera functions
+  const startCamera = useCallback(async (itemId: string) => {
+    setCameraItemId(itemId);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: cameraFacing },
+        audio: false,
+      });
+      setCameraStream(stream);
+      if (cameraRef.current) {
+        cameraRef.current.srcObject = stream;
+        await cameraRef.current.play();
+      }
+      setShowCamera(true);
+    } catch (err) {
+      console.error('Camera access denied:', err);
+      alert('Não foi possível acessar a câmera. Verifique as permissões.');
+    }
+  }, [cameraFacing]);
+
+  const stopCamera = useCallback(() => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setShowCamera(false);
+    setCameraItemId(null);
+  }, [cameraStream]);
+
+  const capturePhoto = useCallback(async () => {
+    if (!cameraRef.current || !cameraStream || !cameraItemId) return;
+    
+    const video = cameraRef.current;
+    
+    // Wait for video to be ready
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      await new Promise<void>((resolve) => {
+        const onLoaded = () => {
+          video.removeEventListener('loadedmetadata', onLoaded);
+          video.removeEventListener('canplay', onLoaded);
+          resolve();
+        };
+        video.addEventListener('loadedmetadata', onLoaded);
+        video.addEventListener('canplay', onLoaded);
+        // Fallback timeout
+        setTimeout(resolve, 1000);
+      });
+    }
+    
+    // Check again after waiting
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      alert('Câmera não está pronta. Tente novamente.');
+      return;
+    }
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.drawImage(video, 0, 0);
+    const blob = await new Promise<Blob>((resolve) => {
+      canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.8);
+    });
+    
+    // Convert blob to File and use existing updatePhoto
+    const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    await updatePhoto(cameraItemId, file);
+    
+    stopCamera();
+  }, [cameraStream, cameraItemId, stopCamera, updatePhoto]);
+
+  const flipCamera = useCallback(() => {
+    setCameraFacing(prev => prev === 'environment' ? 'user' : 'environment');
+  }, []);
 
   const nonConformities = checklist.filter(
     (item) => item.answer === "Não conforme",
@@ -1761,7 +1764,7 @@ function App() {
                               <button
                                 type="button"
                                 className="camera-button"
-                                onClick={() => startCamera()}
+                                onClick={() => startCamera(item.id)}
                                 aria-label="Capturar foto com a câmera"
                               >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: 18, height: 18}} aria-hidden="true">
