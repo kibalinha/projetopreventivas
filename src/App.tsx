@@ -540,6 +540,8 @@ function App() {
       status,
       resolved_after_inspection: status === "Resolvida",
       resolved_at: status === "Resolvida" ? resolvedAt : null,
+      resolved_by: status === "Resolvida" && currentUser ? currentUser.id : null,
+      resolved_by_name: status === "Resolvida" && currentUser ? currentUser.name : null,
     });
   };
 
@@ -1580,6 +1582,11 @@ function IssueCard({
                 <span className="separator">•</span> concluída em {issue.date}
                 {issue.performedBy && <><span className="separator">•</span> por {issue.performedBy}</>}
               </p>
+              {items.some((item) => item.resolved_by_name) && (
+                <p className="resolvers-info">
+                  Resolvidos por: {Array.from(new Set(items.filter(i => i.resolved_by_name).map(i => i.resolved_by_name))).join(', ')}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -1610,6 +1617,11 @@ function IssueCard({
                   {item.resolved_after_inspection && (
                     <span className="resolved-after">
                       ✓ Resolvida após a preventiva em {item.resolved_at}
+                    </span>
+                  )}
+                  {item.resolved_by_name && item.status === "Resolvida" && (
+                    <span className="resolved-by">
+                      👤 Resolvida por {item.resolved_by_name}
                     </span>
                   )}
                 </div>

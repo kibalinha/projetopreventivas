@@ -72,6 +72,8 @@ export type NonConformity = {
   status: 'Aberta' | 'Em tratamento' | 'Resolvida';
   resolved_after_inspection: boolean;
   resolved_at: string | null;
+  resolved_by: string | null;
+  resolved_by_name: string | null;
   photo: string | null;
   performed_by: string | null;
   performed_by_name: string;
@@ -83,6 +85,8 @@ export type NonConformity = {
   boardCode?: string;
   board?: string;
   resolvedAt?: string | null;
+  resolvedBy?: string | null;
+  resolvedByName?: string | null;
   performedBy?: string | null;
   performedByName?: string;
   items?: NonConformity[];

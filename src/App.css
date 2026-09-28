@@ -328,3 +328,6 @@
 .history-table tbody tr:hover { background: #f7faff; }
 .ok-badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; color: #238457; background: #e2f6eb; }
 .issue-count { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; color: #c9514b; background: #ffebeb; }
+.resolved-by { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; color: #238457; background: #e2f6eb; }
+.resolved-after { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; color: #238457; background: #e2f6eb; }
+.resolvers-info { margin-top: 4px; font-size: 10px; color: #238457; font-weight: 500; }
