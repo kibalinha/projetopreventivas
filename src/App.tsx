@@ -451,40 +451,52 @@ function App() {
   const setCompleted = async (value: boolean) => {
     if (!selectedBoard || !currentUser) return;
 
-    const inspectionId = `INS-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${selectedBoard.id}-${Date.now()}`;
-
-    if (value && nonConformities > 0) {
-      const newIssues = checklist
-        .filter((item) => item.answer === "Não conforme")
-        .map((item) => ({
-          inspection_id: inspectionId,
-          board_id: selectedBoard.id,
-          board_code: selectedBoard.code,
-          location: selectedBoard.location,
-          type: selectedBoard.checklist_type,
-          item: item.label,
-          description: item.note || "Item reprovado durante a inspeção.",
-          photo: item.photo || null,
-          performed_by: currentUser.id,
-          performed_by_name: currentUser.name,
-          date: new Date().toISOString().split('T')[0],
-          priority: "Alta" as const,
-          status: "Aberta" as const,
-        }));
-      await createNonConformitiesMutation.mutateAsync(newIssues as any);
+    // Check if all items have an answer
+    const unanswered = checklist.filter((item) => !item.answer);
+    if (unanswered.length > 0) {
+      alert(`${unanswered.length} item(ns) sem resposta. Por favor, responda todos os itens.`);
+      return;
     }
 
-    const inspectionRecord = {
-      board_id: selectedBoard.id,
-      performed_by: currentUser?.id || null,
-      performed_by_name: currentUser?.name || "",
-      date: new Date().toISOString().split('T')[0],
-    };
+    const inspectionId = `INS-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${selectedBoard.id}-${Date.now()}`;
 
-    await createInspectionMutation.mutateAsync(inspectionRecord as any);
-    queryClient.invalidateQueries({ queryKey: ['boards'] });
+    try {
+      if (value && nonConformities > 0) {
+        const newIssues = checklist
+          .filter((item) => item.answer === "Não conforme")
+          .map((item) => ({
+            inspection_id: inspectionId,
+            board_id: selectedBoard.id,
+            board_code: selectedBoard.code,
+            location: selectedBoard.location,
+            type: selectedBoard.checklist_type,
+            item: item.label,
+            description: item.note || "Item reprovado durante a inspeção.",
+            photo: item.photo || null,
+            performed_by: currentUser.id,
+            performed_by_name: currentUser.name,
+            date: new Date().toISOString().split('T')[0],
+            priority: "Alta" as const,
+            status: "Aberta" as const,
+          }));
+        await createNonConformitiesMutation.mutateAsync(newIssues as any);
+      }
 
-    setCompletionModal(value);
+      const inspectionRecord = {
+        board_id: selectedBoard.id,
+        performed_by: currentUser?.id || null,
+        performed_by_name: currentUser?.name || "",
+        date: new Date().toISOString().split('T')[0],
+      };
+
+      await createInspectionMutation.mutateAsync(inspectionRecord as any);
+      queryClient.invalidateQueries({ queryKey: ['boards'] });
+
+      setCompletionModal(value);
+    } catch (err: any) {
+      alert("Erro ao finalizar: " + (err.message || "Erro desconhecido"));
+      console.error(err);
+    }
   };
 
   const updateIssueStatus = async (id: string, status: NonConformityStatus) => {
