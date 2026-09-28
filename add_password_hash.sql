@@ -3,6 +3,12 @@
 
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS password_hash TEXT;
 
+-- Create unique constraint on username if not exists
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_username_key ON profiles (username);
+
+-- Temporarily drop foreign key to allow internal users without auth.users
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_id_fkey;
+
 -- Create initial users with bcrypt hashed passwords
 -- Password for both: "123456"
 
@@ -13,7 +19,7 @@ VALUES (
   'Supervisor',
   'supervisor',
   'supervisor',
-  '$2b$10$2tLQCBGwik7HgMz1tLRoS.bbK5Z9ovdKfegugiIAMV.hy4HQicReS'
+  '$2b$10$iGw3HbBO2dd5x7EuOjtR3ObO9cmXftpj5bgIFMGMmaYk/jLRy.vQq'
 )
 ON CONFLICT (username) DO UPDATE SET
   password_hash = EXCLUDED.password_hash,
@@ -27,7 +33,7 @@ VALUES (
   'Técnico',
   'tecnico',
   'tecnico',
-  '$2b$10$2tLQCBGwik7HgMz1tLRoS.bbK5Z9ovdKfegugiIAMV.hy4HQicReS'
+  '$2b$10$iGw3HbBO2dd5x7EuOjtR3ObO9cmXftpj5bgIFMGMmaYk/jLRy.vQq'
 )
 ON CONFLICT (username) DO UPDATE SET
   password_hash = EXCLUDED.password_hash,
@@ -35,4 +41,4 @@ ON CONFLICT (username) DO UPDATE SET
   role = EXCLUDED.role;
 
 -- Verify
-SELECT username, name, role FROM profiles;
+SELECT username, name, role, password_hash IS NOT NULL as has_password FROM profiles;
