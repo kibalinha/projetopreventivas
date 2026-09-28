@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent, useEffect } from "react";
 import "./App.css";
-import { type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
+import { supabase, type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
 import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useProfiles, useDeleteProfile } from "./hooks/useSupabase";
 import { useAuthContext } from "./contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
@@ -378,17 +378,55 @@ function App() {
     );
   };
 
-  const updatePhoto = (id: string, file?: File) => {
+  const updatePhoto = async (id: string, file?: File) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
+
+    // Show loading state
+    setChecklist((items) =>
+      items.map((item) =>
+        item.id === id ? { ...item, photo: 'loading' } : item
+      )
+    );
+
+    try {
+      // Generate unique filename
+      const ext = file.name.split('.').pop() || 'jpg';
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+      const filePath = `inspections/${fileName}`;
+
+      // Upload to Supabase Storage
+      const { error } = await supabase.storage
+        .from('inspection-photos')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (error) throw error;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('inspection-photos')
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+
+      // Update checklist with the public URL
       setChecklist((items) =>
         items.map((item) =>
-          item.id === id ? { ...item, photo: String(reader.result) } : item
+          item.id === id ? { ...item, photo: publicUrl } : item
         )
       );
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error('Photo upload failed:', err);
+      alert('Erro ao enviar foto: ' + err.message);
+      // Reset on error
+      setChecklist((items) =>
+        items.map((item) =>
+          item.id === id ? { ...item, photo: undefined } : item
+        )
+      );
+    }
   };
 
   const nonConformities = checklist.filter(
