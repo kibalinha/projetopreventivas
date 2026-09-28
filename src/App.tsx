@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent, useEffect } from "react";
 import "./App.css";
 import { type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
-import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useProfiles } from "./hooks/useSupabase";
+import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useProfiles, useDeleteProfile } from "./hooks/useSupabase";
 import { useAuthContext } from "./contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -175,6 +175,7 @@ function App() {
   const createInspectionMutation = useCreateInspection();
   const createNonConformitiesMutation = useCreateNonConformities();
   const updateNonConformityMutation = useUpdateNonConformity();
+  const deleteProfileMutation = useDeleteProfile();
 
   const [activeView, setActiveView] = useState<
     "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users"
@@ -1173,19 +1174,39 @@ function App() {
                           <th>Usuário</th>
                           <th>Papel</th>
                           <th>Criado em</th>
+                          <th style={{ width: '80px' }}>Ações</th>
                         </tr>
                       </thead>
                       <tbody>
                         {profilesData.map((profile) => (
                           <tr key={profile.id}>
-                            <td>{profile.name}</td>
-                            <td>{profile.username}</td>
+                            <td>
+                              <div className="user-cell">
+                                <span className="user-avatar">{profile.name[0]?.toUpperCase()}</span>
+                                <span>{profile.name}</span>
+                              </div>
+                            </td>
+                            <td><code>{profile.username}</code></td>
                             <td>
                               <span className={`role-badge ${profile.role}`}>
                                 {profile.role === 'supervisor' ? 'Supervisor' : 'Técnico'}
                               </span>
                             </td>
                             <td>{new Date(profile.created_at).toLocaleDateString('pt-BR')}</td>
+                            <td>
+                              <button
+                                className="icon-button danger"
+                                onClick={() => {
+                                  if (confirm(`Excluir usuário "${profile.name}" (${profile.username})?`)) {
+                                    deleteProfileMutation.mutate(profile.id);
+                                  }
+                                }}
+                                disabled={deleteProfileMutation.isPending}
+                                title="Excluir usuário"
+                              >
+                                🗑
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
