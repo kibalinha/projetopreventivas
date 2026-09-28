@@ -209,6 +209,7 @@ function App() {
   // User editing state
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editUserName, setEditUserName] = useState("");
+  const [editUserUsername, setEditUserUsername] = useState("");
   const [editUserRole, setEditUserRole] = useState<UserRole>("tecnico");
   const [editUserPassword, setEditUserPassword] = useState("");
 
@@ -1412,9 +1413,10 @@ function App() {
                               <td colSpan={5} style={{ padding: '16px' }}>
                                 <form onSubmit={async (e) => {
                                   e.preventDefault();
-                                  const updates: { id: string; name: string; role: 'supervisor' | 'tecnico'; password_hash?: string } = {
+                                  const updates: { id: string; name: string; username: string; role: 'supervisor' | 'tecnico'; password_hash?: string } = {
                                     id: profile.id,
                                     name: editUserName,
+                                    username: editUserUsername,
                                     role: editUserRole,
                                   };
                                   if (editUserPassword) {
@@ -1424,6 +1426,7 @@ function App() {
                                     onSuccess: () => {
                                       setEditingUserId(null);
                                       setEditUserName('');
+                                      setEditUserUsername('');
                                       setEditUserRole('tecnico');
                                       setEditUserPassword('');
                                     }
@@ -1435,6 +1438,16 @@ function App() {
                                       value={editUserName}
                                       onChange={(e) => setEditUserName(e.target.value)}
                                       placeholder="Nome completo"
+                                      style={{ width: '100%', minHeight: '38px', padding: '8px 10px', border: '1px solid #d6e0ea', borderRadius: '5px', fontSize: '11px' }}
+                                      required
+                                    />
+                                  </div>
+                                  <div style={{ flex: '1 1 140px' }}>
+                                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '11px', fontWeight: 700, color: '#53677d' }}>Usuário</label>
+                                    <input
+                                      value={editUserUsername}
+                                      onChange={(e) => setEditUserUsername(e.target.value)}
+                                      placeholder="nome.usuario"
                                       style={{ width: '100%', minHeight: '38px', padding: '8px 10px', border: '1px solid #d6e0ea', borderRadius: '5px', fontSize: '11px' }}
                                       required
                                     />
@@ -1464,7 +1477,7 @@ function App() {
                                     <button type="submit" className="primary-button" style={{ minHeight: '38px' }} disabled={updateProfileMutation.isPending}>
                                       {updateProfileMutation.isPending ? 'Salvando...' : 'Salvar'}
                                     </button>
-                                    <button type="button" className="secondary-button" style={{ minHeight: '38px', padding: '0 16px', border: '1px solid var(--line)', borderRadius: '6px', background: 'white', color: 'var(--muted)', fontWeight: 600 }} onClick={() => { setEditingUserId(null); setEditUserName(''); setEditUserRole('tecnico'); setEditUserPassword(''); }}>
+                                    <button type="button" className="secondary-button" style={{ minHeight: '38px', padding: '0 16px', border: '1px solid var(--line)', borderRadius: '6px', background: 'white', color: 'var(--muted)', fontWeight: 600 }} onClick={() => { setEditingUserId(null); setEditUserName(''); setEditUserUsername(''); setEditUserRole('tecnico'); setEditUserPassword(''); }}>
                                       Cancelar
                                     </button>
                                   </div>
@@ -1491,6 +1504,7 @@ function App() {
                                       onClick={() => {
                                         setEditingUserId(profile.id);
                                         setEditUserName(profile.name);
+                                        setEditUserUsername(profile.username);
                                         setEditUserRole(profile.role as UserRole);
                                         setEditUserPassword('');
                                       }}
