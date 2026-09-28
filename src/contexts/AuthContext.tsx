@@ -99,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase
       .from('profiles')
       .insert({
+        id: crypto.randomUUID(),
         name,
         username,
         role,
