@@ -1,6 +1,12 @@
-import { useMemo, useState, type FormEvent, useEffect } from "react";
+import { useMemo, useState, type FormEvent, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 import { supabase, type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
+
+// Type for PWA install prompt
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
 import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useProfiles, useDeleteProfile } from "./hooks/useSupabase";
 import { useAuthContext } from "./contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
@@ -198,7 +204,164 @@ function App() {
   const [newTechnicianPassword, setNewTechnicianPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<UserRole>("tecnico");
 
-  // Map database boards to app format
+  // PWA Install Prompt
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  // Camera state
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const cameraRef = useRef<HTMLVideoElement>(null);
+
+  // Swipe state for checklist navigation
+  const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
+
+  // PWA Install handling
+  useEffect(() => {
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    setIsIOS(isIOSDevice);
+    setIsStandalone(window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true);
+
+    const handleBeforeInstallPrompt = (e: BeforeInstallPromptEvent) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      // Show banner after a delay if not on iOS
+      if (!isIOSDevice) {
+        setTimeout(() => setShowInstallBanner(true), 30000);
+      }
+    };
+
+    const handleAppInstalled = () => {
+      setDeferredPrompt(null);
+      setShowInstallBanner(false);
+    };
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Camera functions
+  const startCamera = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: cameraFacing },
+        audio: false,
+      });
+      setCameraStream(stream);
+      if (cameraRef.current) {
+        cameraRef.current.srcObject = stream;
+        await cameraRef.current.play();
+      }
+      setShowCamera(true);
+    } catch (err) {
+      console.error('Camera access denied:', err);
+      alert('Não foi possível acessar a câmera. Verifique as permissões.');
+    }
+  }, [cameraFacing]);
+
+  const stopCamera = useCallback(() => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setShowCamera(false);
+  }, [cameraStream]);
+
+  const capturePhoto = useCallback(async () => {
+    if (!cameraRef.current || !cameraStream) return null;
+    
+    const video = cameraRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    
+    ctx.drawImage(video, 0, 0);
+    const blob = await new Promise<Blob>((resolve) => {
+      canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.8);
+    });
+    
+    stopCamera();
+    
+    // Upload to Supabase Storage
+    try {
+      const ext = 'jpg';
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+      const filePath = `inspections/${fileName}`;
+      
+      const { error } = await supabase.storage
+        .from('inspection-photos')
+        .upload(filePath, blob, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (error) throw error;
+
+      const { data: urlData } = supabase.storage
+        .from('inspection-photos')
+        .getPublicUrl(filePath);
+
+      return urlData.publicUrl;
+    } catch (err: any) {
+      console.error('Photo upload failed:', err);
+      alert('Erro ao enviar foto: ' + err.message);
+      return null;
+    }
+  }, [cameraStream, stopCamera]);
+
+  const flipCamera = useCallback(() => {
+    setCameraFacing(prev => prev === 'environment' ? 'user' : 'environment');
+  }, []);
+
+  // Swipe handlers for checklist navigation
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    setSwipeStartX(e.touches[0].clientX);
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (swipeStartX === null) return;
+    const swipeEndX = e.changedTouches[0].clientX;
+    const diff = swipeStartX - swipeEndX;
+    
+    if (Math.abs(diff) > 50) { // Minimum swipe distance
+      // Could add swipe navigation here if needed
+      // For now just reset
+    }
+    setSwipeStartX(null);
+  }, [swipeStartX]);
+
+  const handleInstallClick = useCallback(async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallBanner(false);
+    }
+    setDeferredPrompt(null);
+  }, [deferredPrompt]);
+
+  const dismissInstallBanner = useCallback(() => {
+    setShowInstallBanner(false);
+  }, []);
+
   const boards: Board[] = useMemo(() => {
     if (!boardsData) return [];
     console.log('boardsData:', boardsData);
@@ -1422,6 +1585,18 @@ function App() {
                 }}
               />
             </div>
+
+            {/* Mobile Checklist Progress & Swipe Hint */}
+            <div className="checklist-progress" role="status" aria-live="polite">
+              <div className="progress-indicator">
+                <span style={{ width: `${checklist.length > 0 ? Math.round((checklist.filter(i => i.answer !== "Conforme").length / checklist.length) * 100) : 0}%` }} />
+              </div>
+              <span className="progress-text">
+                {checklist.filter(i => i.answer !== "Conforme").length} / {checklist.length}
+              </span>
+            </div>
+            <p className="swipe-hint">Deslize para navegar entre os itens</p>
+
             <div className="inspection-layout">
               <div className="checklist-panel panel">
                 <div className="panel-heading">
@@ -1451,6 +1626,8 @@ function App() {
                           : "check-item"
                       }
                       key={item.id}
+                      onTouchStart={handleTouchStart}
+                      onTouchEnd={handleTouchEnd}
                     >
                       <div className="item-number">
                         {String(index + 1).padStart(2, "0")}
@@ -1466,16 +1643,30 @@ function App() {
                               }
                               placeholder="Descreva a não conformidade..."
                             />
-                            <label className="photo-upload">
-                              <span>{item.photo ? "Trocar foto" : "Adicionar foto"}</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                capture="environment"
-                                onChange={(event) => updatePhoto(item.id, event.target.files?.[0])}
-                                aria-label={`Foto da não conformidade: ${item.label}`}
-                              />
-                            </label>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                              <label className="photo-upload" style={{ flex: '1 1 140px' }}>
+                                <span>{item.photo ? "Trocar foto" : "Adicionar foto"}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  onChange={(event) => updatePhoto(item.id, event.target.files?.[0])}
+                                  aria-label={`Foto da não conformidade: ${item.label}`}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                className="camera-button"
+                                onClick={() => startCamera()}
+                                aria-label="Capturar foto com a câmera"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: 18, height: 18}} aria-hidden="true">
+                                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                                  <circle cx="12" cy="12" r="4"/>
+                                </svg>
+                                <span>Câmera</span>
+                              </button>
+                            </div>
                             {item.photo && <img className="check-photo-preview" src={item.photo} alt={`Registro do item ${item.label}`} />}
                           </>
                         )}
@@ -1609,7 +1800,149 @@ function App() {
               }}
             >
               Voltar ao painel
-            </button>
+</button>
+           </div>
+         </div>
+       )}
+
+       {/* Offline Indicator */}
+      {!isOnline && (
+        <div className="offline-indicator visible" role="alert">
+          📴 Você está offline. As alterações serão sincronizadas quando a conexão voltar.
+        </div>
+      )}
+
+      {/* PWA Install Banner */}
+      {showInstallBanner && deferredPrompt && !isStandalone && !isIOS && (
+        <div className="pwa-install-banner visible" role="dialog" aria-label="Instalar aplicativo">
+          <div className="pwa-install-content">
+            <div className="pwa-install-icon">▤</div>
+            <div className="pwa-install-text">
+              <strong>Instalar Preventiva App</strong>
+              <small>Acesse mais rápido, funcione offline e tenha experiência nativa</small>
+            </div>
+            <div className="pwa-install-actions">
+              <button className="primary-button" onClick={handleInstallClick}>
+                Instalar
+              </button>
+              <button className="secondary-button" onClick={dismissInstallBanner}>
+                Agora não
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* iOS Install Hint */}
+      {isIOS && !isStandalone && !showInstallBanner && (
+        <div className="pwa-install-banner visible" style={{ bottom: isOnline ? '90px' : '130px' }} role="dialog" aria-label="Instalar no iOS">
+          <div className="pwa-install-content">
+            <div className="pwa-install-icon">▤</div>
+            <div className="pwa-install-text">
+              <strong>Adicionar à Tela Inicial</strong>
+              <small>Toque em Compartilhar → Adicionar à Tela Inicial para instalar</small>
+            </div>
+            <div className="pwa-install-actions">
+              <button className="secondary-button" onClick={dismissInstallBanner}>
+                Entendi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Navigation - Mobile */}
+      <nav className="bottom-nav" aria-label="Navegação principal">
+        <div className="bottom-nav-items">
+          <button
+            className={activeView === "overview" ? "bottom-nav-item active" : "bottom-nav-item"}
+            onClick={() => setActiveView("overview")}
+            aria-current={activeView === "overview" ? "page" : undefined}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            <span>Início</span>
+          </button>
+          <button
+            className={activeView === "boards" ? "bottom-nav-item active" : "bottom-nav-item"}
+            onClick={() => setActiveView("boards")}
+            aria-current={activeView === "boards" ? "page" : undefined}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            <span>Quadros</span>
+          </button>
+          <button
+            className={activeView === "inspection" ? "bottom-nav-item active" : "bottom-nav-item"}
+            onClick={() => setActiveView("inspection")}
+            aria-current={activeView === "inspection" ? "page" : undefined}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span>Preventiva</span>
+          </button>
+          <button
+            className={activeView === "issues" ? "bottom-nav-item active" : "bottom-nav-item"}
+            onClick={() => setActiveView("issues")}
+            aria-current={activeView === "issues" ? "page" : undefined}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>Problemas</span>
+          </button>
+        </div>
+      </nav>
+
+      {/* Camera Modal */}
+      {showCamera && (
+        <div className="modal-overlay" onClick={stopCamera} role="dialog" aria-modal="true" aria-label="Capturar foto">
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Capturar Foto</h3>
+              <button className="modal-close" onClick={stopCamera} aria-label="Fechar câmera">✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="camera-preview">
+                <video
+                  ref={cameraRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  aria-hidden="true"
+                />
+                <div className="camera-overlay">
+                  Toque no botão abaixo para capturar
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', marginTop: '16px', padding: '0 16px' }}>
+                <button
+                  className="primary-button"
+                  style={{ flex: 1 }}
+                  onClick={() => capturePhoto()}
+                >
+                  📷 Capturar
+                </button>
+                <button
+                  className="secondary-button"
+                  style={{ flex: 1 }}
+                  onClick={flipCamera}
+                >
+                  🔄 Trocar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

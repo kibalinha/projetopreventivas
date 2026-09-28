@@ -19,5 +19,6 @@
         "@modelcontextprotocol/server-puppeteer"
       ]
     }
-  }
+  },
+  "snapshot": false
 }
