@@ -1,13 +1,14 @@
 import { useMemo, useState, type FormEvent, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 import { supabase, type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
+import bcrypt from 'bcryptjs';
 
 // Type for PWA install prompt
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
-import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useProfiles, useDeleteProfile } from "./hooks/useSupabase";
+import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useProfiles, useDeleteProfile, useUpdateProfile } from "./hooks/useSupabase";
 import { useAuthContext } from "./contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -182,6 +183,7 @@ function App() {
   const createNonConformitiesMutation = useCreateNonConformities();
   const updateNonConformityMutation = useUpdateNonConformity();
   const deleteProfileMutation = useDeleteProfile();
+  const updateProfileMutation = useUpdateProfile();
 
   const [activeView, setActiveView] = useState<
     "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users" | "history"
@@ -203,6 +205,12 @@ function App() {
   const [newTechnicianUsername, setNewTechnicianUsername] = useState("");
   const [newTechnicianPassword, setNewTechnicianPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<UserRole>("tecnico");
+  
+  // User editing state
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editUserName, setEditUserName] = useState("");
+  const [editUserRole, setEditUserRole] = useState<UserRole>("tecnico");
+  const [editUserPassword, setEditUserPassword] = useState("");
 
   // PWA Install Prompt
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -1394,38 +1402,120 @@ function App() {
                           <th>Usuário</th>
                           <th>Papel</th>
                           <th>Criado em</th>
-                          <th style={{ width: '60px' }}>Ações</th>
+                          <th style={{ width: '120px' }}>Ações</th>
                         </tr>
                       </thead>
                       <tbody>
                         {profilesData.map((profile) => (
                           <tr key={profile.id}>
-                            <td>
-                              <div className="user-info">
-                                <span className="user-name">{profile.name}</span>
-                              </div>
-                            </td>
-                            <td><span className="user-username">{profile.username}</span></td>
-                            <td>
-                              <span className={`role-badge ${profile.role}`}>
-                                {profile.role === 'supervisor' ? 'Supervisor' : 'Técnico'}
-                              </span>
-                            </td>
-                            <td>{new Date(profile.created_at).toLocaleDateString('pt-BR')}</td>
-                            <td>
-                              <button
-                                className="icon-button danger"
-                                onClick={() => {
-                                  if (confirm(`Excluir usuário "${profile.name}" (${profile.username})?`)) {
-                                    deleteProfileMutation.mutate(profile.id);
+                            {editingUserId === profile.id ? (
+                              <td colSpan={5} style={{ padding: '16px' }}>
+                                <form onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  const updates: { id: string; name: string; role: 'supervisor' | 'tecnico'; password_hash?: string } = {
+                                    id: profile.id,
+                                    name: editUserName,
+                                    role: editUserRole,
+                                  };
+                                  if (editUserPassword) {
+                                    updates.password_hash = await bcrypt.hash(editUserPassword, 10);
                                   }
-                                }}
-                                disabled={deleteProfileMutation.isPending}
-                                title="Excluir usuário"
-                              >
-                                🗑
-                              </button>
-                            </td>
+                                  updateProfileMutation.mutate(updates as any, {
+                                    onSuccess: () => {
+                                      setEditingUserId(null);
+                                      setEditUserName('');
+                                      setEditUserRole('tecnico');
+                                      setEditUserPassword('');
+                                    }
+                                  });
+                                }} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                  <div style={{ flex: '1 1 200px' }}>
+                                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '11px', fontWeight: 700, color: '#53677d' }}>Nome</label>
+                                    <input
+                                      value={editUserName}
+                                      onChange={(e) => setEditUserName(e.target.value)}
+                                      placeholder="Nome completo"
+                                      style={{ width: '100%', minHeight: '38px', padding: '8px 10px', border: '1px solid #d6e0ea', borderRadius: '5px', fontSize: '11px' }}
+                                      required
+                                    />
+                                  </div>
+                                  <div style={{ flex: '1 1 140px' }}>
+                                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '11px', fontWeight: 700, color: '#53677d' }}>Papel</label>
+                                    <select
+                                      value={editUserRole}
+                                      onChange={(e) => setEditUserRole(e.target.value as UserRole)}
+                                      style={{ width: '100%', minHeight: '38px', padding: '8px 10px', border: '1px solid #d6e0ea', borderRadius: '5px', fontSize: '11px' }}
+                                    >
+                                      <option value="tecnico">Técnico</option>
+                                      <option value="supervisor">Supervisor</option>
+                                    </select>
+                                  </div>
+                                  <div style={{ flex: '1 1 160px' }}>
+                                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '11px', fontWeight: 700, color: '#53677d' }}>Nova senha (opcional)</label>
+                                    <input
+                                      type="password"
+                                      value={editUserPassword}
+                                      onChange={(e) => setEditUserPassword(e.target.value)}
+                                      placeholder="Deixe vazio para não alterar"
+                                      style={{ width: '100%', minHeight: '38px', padding: '8px 10px', border: '1px solid #d6e0ea', borderRadius: '5px', fontSize: '11px' }}
+                                    />
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button type="submit" className="primary-button" style={{ minHeight: '38px' }} disabled={updateProfileMutation.isPending}>
+                                      {updateProfileMutation.isPending ? 'Salvando...' : 'Salvar'}
+                                    </button>
+                                    <button type="button" className="secondary-button" style={{ minHeight: '38px', padding: '0 16px', border: '1px solid var(--line)', borderRadius: '6px', background: 'white', color: 'var(--muted)', fontWeight: 600 }} onClick={() => { setEditingUserId(null); setEditUserName(''); setEditUserRole('tecnico'); setEditUserPassword(''); }}>
+                                      Cancelar
+                                    </button>
+                                  </div>
+                                </form>
+                              </td>
+                            ) : (
+                              <>
+                                <td>
+                                  <div className="user-info">
+                                    <span className="user-name">{profile.name}</span>
+                                  </div>
+                                </td>
+                                <td><span className="user-username">{profile.username}</span></td>
+                                <td>
+                                  <span className={`role-badge ${profile.role}`}>
+                                    {profile.role === 'supervisor' ? 'Supervisor' : 'Técnico'}
+                                  </span>
+                                </td>
+                                <td>{new Date(profile.created_at).toLocaleDateString('pt-BR')}</td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                                    <button
+                                      className="icon-button"
+                                      onClick={() => {
+                                        setEditingUserId(profile.id);
+                                        setEditUserName(profile.name);
+                                        setEditUserRole(profile.role as UserRole);
+                                        setEditUserPassword('');
+                                      }}
+                                      disabled={deleteProfileMutation.isPending || updateProfileMutation.isPending}
+                                      title="Editar usuário"
+                                      style={{ color: '#2474d3', background: '#e7f1ff' }}
+                                    >
+                                      ✎
+                                    </button>
+                                    <button
+                                      className="icon-button danger"
+                                      onClick={() => {
+                                        if (confirm(`Excluir usuário "${profile.name}" (${profile.username})?`)) {
+                                          deleteProfileMutation.mutate(profile.id);
+                                        }
+                                      }}
+                                      disabled={deleteProfileMutation.isPending || updateProfileMutation.isPending}
+                                      title="Excluir usuário"
+                                    >
+                                      🗑
+                                    </button>
+                                  </div>
+                                </td>
+                              </>
+                            )}
                           </tr>
                         ))}
                       </tbody>
