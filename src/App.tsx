@@ -458,9 +458,19 @@ function App() {
       return;
     }
 
-    const inspectionId = `INS-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${selectedBoard.id}-${Date.now()}`;
-
     try {
+      // First create the inspection (DB generates UUID)
+      const inspectionRecord = {
+        board_id: selectedBoard.id,
+        performed_by: currentUser?.id || null,
+        performed_by_name: currentUser?.name || "",
+        date: new Date().toISOString().split('T')[0],
+      };
+
+      const inspection = await createInspectionMutation.mutateAsync(inspectionRecord as any);
+      const inspectionId = inspection.id; // Use the DB-generated UUID
+
+      // Then create non-conformities with the real inspection UUID
       if (value && nonConformities > 0) {
         const newIssues = checklist
           .filter((item) => item.answer === "Não conforme")
@@ -482,16 +492,7 @@ function App() {
         await createNonConformitiesMutation.mutateAsync(newIssues as any);
       }
 
-      const inspectionRecord = {
-        board_id: selectedBoard.id,
-        performed_by: currentUser?.id || null,
-        performed_by_name: currentUser?.name || "",
-        date: new Date().toISOString().split('T')[0],
-      };
-
-      await createInspectionMutation.mutateAsync(inspectionRecord as any);
       queryClient.invalidateQueries({ queryKey: ['boards'] });
-
       setCompletionModal(value);
     } catch (err: any) {
       alert("Erro ao finalizar: " + (err.message || "Erro desconhecido"));
