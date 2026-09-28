@@ -191,6 +191,8 @@ function App() {
   const [completed, setCompletionModal] = useState(false);
   const [issueFilter, setIssueFilter] = useState<"Todas" | NonConformityStatus>("Todas");
   const [issueTypeFilter, setIssueTypeFilter] = useState<"Todos" | "Todos os tipos" | BoardType>("Todos");
+  const [historyBoardFilter, setHistoryBoardFilter] = useState<string>("Todos");
+  const [historyPersonFilter, setHistoryPersonFilter] = useState<string>("Todos");
   const [newTechnicianName, setNewTechnicianName] = useState("");
   const [newTechnicianUsername, setNewTechnicianUsername] = useState("");
   const [newTechnicianPassword, setNewTechnicianPassword] = useState("");
@@ -237,6 +239,17 @@ function App() {
       };
     });
   }, [inspectionsData, boards]);
+
+  // Filtered history for history view
+  const filteredHistory = useMemo(() => {
+    return inspectionHistory
+      .sort((a, b) => parseBrDate(b.date) - parseBrDate(a.date))
+      .filter((inspection) => {
+        const matchesBoard = historyBoardFilter === "Todos" || inspection.board === historyBoardFilter;
+        const matchesPerson = historyPersonFilter === "Todos" || inspection.performedBy === historyPersonFilter;
+        return matchesBoard && matchesPerson;
+      });
+  }, [inspectionHistory, historyBoardFilter, historyPersonFilter]);
 
   // Load checklist when board changes
   useEffect(() => {
@@ -1238,8 +1251,41 @@ function App() {
                 <p>Todas as inspeções concluídas com responsável e data</p>
               </div>
             </div>
+            <div className="filters history-filters">
+              <select
+                className="filter-button"
+                value={historyBoardFilter}
+                onChange={(event) => setHistoryBoardFilter(event.target.value)}
+                aria-label="Filtrar por quadro"
+              >
+                <option value="Todos">Todos os quadros</option>
+                {inspectionHistory
+                  .map((i) => i.board)
+                  .filter((v, i, a) => a.indexOf(v) === i)
+                  .sort()
+                  .map((board) => (
+                    <option key={board} value={board}>{board}</option>
+                  ))}
+              </select>
+              <select
+                className="filter-button"
+                value={historyPersonFilter}
+                onChange={(event) => setHistoryPersonFilter(event.target.value)}
+                aria-label="Filtrar por pessoa"
+              >
+                <option value="Todos">Todas as pessoas</option>
+                {inspectionHistory
+                  .map((i) => i.performedBy)
+                  .filter((v): v is string => Boolean(v))
+                  .filter((v, i, a) => a.indexOf(v) === i)
+                  .sort()
+                  .map((person) => (
+                    <option key={person} value={person}>{person}</option>
+                  ))}
+              </select>
+            </div>
             <div className="panel history-table-container">
-              {inspectionHistory.length > 0 ? (
+              {filteredHistory.length > 0 ? (
                 <table className="history-table">
                   <thead>
                     <tr>
@@ -1252,42 +1298,48 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {inspectionHistory
-                      .sort((a, b) => parseBrDate(b.date) - parseBrDate(a.date))
-                      .map((inspection) => {
-                        const ncCount = nonConformityList.filter(
-                          (nc) => nc.inspection_id === inspection.id
-                        ).length;
-                        return (
-                          <tr key={inspection.id}>
-                            <td>{inspection.date}</td>
-                            <td>
-                              <strong>{inspection.board}</strong>
-                            </td>
-                            <td>{boards.find((b) => b.id === inspection.boardId)?.location || '-'}</td>
-                            <td>
-                              <span className="type-pill">
-                                {boards.find((b) => b.id === inspection.boardId)?.type || '-'}
-                              </span>
-                            </td>
-                            <td>{inspection.performedBy || '-'}</td>
-                            <td>
-                              {ncCount > 0 ? (
-                                <span className="issue-count">{ncCount} {ncCount === 1 ? 'item' : 'itens'}</span>
-                              ) : (
-                                <span className="ok-badge">✓ Sem não conformidades</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                    {filteredHistory.map((inspection) => {
+                      const ncCount = nonConformityList.filter(
+                        (nc) => nc.inspection_id === inspection.id
+                      ).length;
+                      return (
+                        <tr key={inspection.id}>
+                          <td>{inspection.date}</td>
+                          <td>
+                            <strong>{inspection.board}</strong>
+                          </td>
+                          <td>{boards.find((b) => b.id === inspection.boardId)?.location || '-'}</td>
+                          <td>
+                            <span className="type-pill">
+                              {boards.find((b) => b.id === inspection.boardId)?.type || '-'}
+                            </span>
+                          </td>
+                          <td>{inspection.performedBy || '-'}</td>
+                          <td>
+                            {ncCount > 0 ? (
+                              <span className="issue-count">{ncCount} {ncCount === 1 ? 'item' : 'itens'}</span>
+                            ) : (
+                              <span className="ok-badge">✓ Sem não conformidades</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               ) : (
                 <div className="empty-state">
                   <span>⏱</span>
-                  <strong>Nenhuma preventiva realizada</strong>
-                  <p>As inspeções concluídas aparecerão aqui automaticamente.</p>
+                  <strong>
+                    {inspectionHistory.length > 0
+                      ? "Nenhuma preventiva encontrada com os filtros atuais"
+                      : "Nenhuma preventiva realizada"}
+                  </strong>
+                  <p>
+                    {inspectionHistory.length > 0
+                      ? "Ajuste os filtros de quadro ou pessoa para ver mais resultados."
+                      : "As inspeções concluídas aparecerão aqui automaticamente."}
+                  </p>
                 </div>
               )}
             </div>
