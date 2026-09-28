@@ -1,61 +1,24 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent, useEffect } from "react";
 import "./App.css";
+import { supabase, type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
+import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useAuth } from "./hooks/useSupabase";
+import { useAuthContext } from "./contexts/AuthContext";
+import { useQueryClient } from "@tanstack/react-query";
 
 type ChecklistType = "QLF" | "CM" | "QE-AC" | "CT";
 type BoardType = ChecklistType | "CD" | "QF" | "QLC" | "QCR" | "QRC" | "QE-CAG" | "Outros";
 type InspectionAnswer = "Conforme" | "Não conforme" | "N/A";
 type UserRole = "supervisor" | "tecnico";
 
-type User = {
-  name: string;
-  username: string;
-  password: string;
-  role: UserRole;
-};
-
-const users: User[] = [
-  { name: "Luiz Felipe", username: "supervisor", password: "123456", role: "supervisor" },
-  { name: "Técnico de manutenção", username: "tecnico", password: "123456", role: "tecnico" },
-];
-
-type Board = {
-  id: string;
-  code: string;
-  location: string;
-  type: BoardType;
-  checklistType: ChecklistType;
-  description: string;
-  lastInspection: string;
-  status: "Em dia" | "Pendente";
-};
+type NonConformityStatus = "Aberta" | "Em tratamento" | "Resolvida";
 
 type ChecklistItem = {
-  id: number;
+  id: string;
   label: string;
   answer: InspectionAnswer;
   note: string;
   photo?: string;
-};
-
-type NonConformityStatus = "Aberta" | "Em tratamento" | "Resolvida";
-
-type NonConformity = {
-  id: number;
-  boardId?: string;
-  inspection: string;
-  board: string;
-  location: string;
-  type: BoardType;
-  item: string;
-  description: string;
-  date: string;
-  priority: "Crítica" | "Alta" | "Média";
-  status: NonConformityStatus;
-  resolvedAfterInspection?: boolean;
-  resolvedAt?: string;
-  photo?: string;
-  performedBy?: string;
-  items?: NonConformity[];
+  definitionId?: string;
 };
 
 type InspectionRecord = {
@@ -137,1328 +100,7 @@ const checklistByType: Record<ChecklistType, string[]> = {
   ],
 };
 
-const initialBoards: Board[] = [
-  {
-    id: "bd-001-qlf1a-gt01",
-    code: "QLF-1A",
-    location: "GT 01",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-002-cm11-gt01",
-    code: "CM1.1",
-    location: "GT 01",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-003-qeac04-gt01",
-    code: "QE-AC-04",
-    location: "GT 01",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-004-qlf1c-gt02",
-    code: "QLF-1C",
-    location: "GT 02",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-005-cm13-gt02",
-    code: "CM1.3",
-    location: "GT 02",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-006-cdchuveiro-gt02",
-    code: "CD CHUVEIRO",
-    location: "GT 02",
-    type: "CD" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-007-qlf1b-gt02",
-    code: "QLF-1B",
-    location: "GT 02",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-008-qlfext01-gt02",
-    code: "QLF-EXT-01",
-    location: "GT 02",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-009-cm14-gt02",
-    code: "CM1.4",
-    location: "GT 02",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-010-qeaccm06-gt02",
-    code: "QE-AC CM06",
-    location: "GT 02",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-011-qlf1d-gt02",
-    code: "QLF-1D",
-    location: "GT 02",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-012-cm12vestiriomascdoca2-gt02",
-    code: "CM12 VESTIÁRIO MASC DOCA 2",
-    location: "GT 02",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-013-qlf2a-gt03",
-    code: "QLF-2A",
-    location: "GT 03",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-014-qeac19-gt03",
-    code: "QE-AC-19",
-    location: "GT 03",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-015-cm21-gt03",
-    code: "CM2.1",
-    location: "GT 03",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-016-qlf2b-gt03",
-    code: "QLF-2B",
-    location: "GT 03",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-017-cm22-gt04",
-    code: "CM 2.2",
-    location: "GT 04",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-018-qlfpontodecobrana-gt04",
-    code: "QLF-PONTO DE COBRANÇA",
-    location: "GT 04",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-019-qlf2c-gt05",
-    code: "QLF-2C",
-    location: "GT 05",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-020-qeac14-gt05",
-    code: "QE-AC-14",
-    location: "GT 05",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-021-cm03-gt05",
-    code: "CM03",
-    location: "GT 05",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-022-cm23-gt05",
-    code: "CM2.3",
-    location: "GT 05",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-023-qlf2d-gt05",
-    code: "QLF-2D",
-    location: "GT 05",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-024-cm34-gt06",
-    code: "CM3.4",
-    location: "GT 06",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-025-cm39-gt06",
-    code: "CM3.9",
-    location: "GT 06",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-026-cm38-gt07",
-    code: "CM3.8",
-    location: "GT 07",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-027-qeac03-gt07",
-    code: "QE-AC-03",
-    location: "GT 07",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-028-cm20-gt07",
-    code: "CM20",
-    location: "GT 07",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-029-qeac02-gt07",
-    code: "QE-AC-02",
-    location: "GT 07",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-030-qeac01-gt07",
-    code: "QE-AC-01",
-    location: "GT 07",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-031-qlf1e-gt07",
-    code: "QLF-1E",
-    location: "GT 07",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-032-qlf3c-gt07",
-    code: "QLF-3C",
-    location: "GT 07",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-033-qeac21-gt07",
-    code: "QE-AC-21",
-    location: "GT 07",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-034-qlflojasescadasrolantesac-gt07",
-    code: "QLF-LOJAS ESCADAS ROLANTES AC",
-    location: "GT 07",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-035-qlf3a-gt07",
-    code: "QLF-3A",
-    location: "GT 07",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-036-qeac16-gt07",
-    code: "QE-AC-16",
-    location: "GT 07",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-037-cm04-gt07",
-    code: "CM04",
-    location: "GT 07",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-038-qlf3b-gt07",
-    code: "QLF-3B",
-    location: "GT 07",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-039-cm33-gt07",
-    code: "CM3.3",
-    location: "GT 07",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-040-cm31-gt07",
-    code: "CM3.1",
-    location: "GT 07",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-041-cm32-gt08",
-    code: "CM3.2",
-    location: "GT 08",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-042-qlf3d-gt08",
-    code: "QLF-3D",
-    location: "GT 08",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-043-qeac20-gt09",
-    code: "QE-AC-20",
-    location: "GT 09",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-044-cm42-gt09",
-    code: "CM4.2",
-    location: "GT 09",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-045-qlfcalado-gt09",
-    code: "QLF-CALÇADÃO",
-    location: "GT 09",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-046-qlf2e-gt09",
-    code: "QLF-2E",
-    location: "GT 09",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-047-cm43-gt09",
-    code: "CM4.3",
-    location: "GT 09",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-048-qlfeblimpeza-gt09",
-    code: "QLF-E-B-LIMPEZA",
-    location: "GT 09",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-049-qlfbhidrante-gt09",
-    code: "QLF-B.HIDRANTE",
-    location: "GT 09",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-050-qeac17sisterna-gt09",
-    code: "QE-AC-17 SISTERNA",
-    location: "GT 09",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-051-qeac12-gt11",
-    code: "QE-AC-12",
-    location: "GT 11",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-052-cm41-gt11",
-    code: "CM4.1",
-    location: "GT 11",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-053-cm51-gt11",
-    code: "CM5.1",
-    location: "GT 11",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-054-qlf5b-gt12",
-    code: "QLF-5B",
-    location: "GT 12",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-055-qlf5a-gt12",
-    code: "QLF-5A",
-    location: "GT 12",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-056-qeac05ventilao14-gt12",
-    code: "QE-AC-05 VENTILAÇÃO 14",
-    location: "GT 12",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-057-qeac03-gt12",
-    code: "QE-AC-03",
-    location: "GT 12",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-058-cm52-gt12",
-    code: "CM5.2",
-    location: "GT 12",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-059-qlf1b-gt13",
-    code: "QLF-1B",
-    location: "GT 13",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-060-cm15-gt13",
-    code: "CM1.5",
-    location: "GT 13",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-061-qeac29-gt13",
-    code: "QE-AC-29",
-    location: "GT 13",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-062-qlf1c-gt14",
-    code: "QLF-1C",
-    location: "GT 14",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-063-cm16-gt14",
-    code: "CM1.6",
-    location: "GT 14",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-064-cm17-gt15",
-    code: "CM1.7",
-    location: "GT 15",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-065-cm18-gt15",
-    code: "CM1.8",
-    location: "GT 15",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-066-qlf1e-gt16",
-    code: "QLF-1E",
-    location: "GT 16",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-067-qeac23-gt16",
-    code: "QE-AC-23",
-    location: "GT 16",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-068-qlfnecozinha-gt16",
-    code: "QLF-N/E COZINHA",
-    location: "GT 16",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-069-qlf2c-gt17",
-    code: "QLF-2C",
-    location: "GT 17",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-070-cm25-gt17",
-    code: "CM2.5",
-    location: "GT 17",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-071-qlf2b-gt17",
-    code: "QLF-2B",
-    location: "GT 17",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-072-cm24-gt17",
-    code: "CM2.4",
-    location: "GT 17",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-073-qlf2a-gt17",
-    code: "QLF-2A",
-    location: "GT 17",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-074-cm26-gt18",
-    code: "CM2.6",
-    location: "GT 18",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-075-qeac24-gt18",
-    code: "QE-AC-24",
-    location: "GT 18",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-076-qlf3b-gt19",
-    code: "QLF-3B",
-    location: "GT 19",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-077-qlfext04-gt19",
-    code: "QLF-EXT.04",
-    location: "GT 19",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-078-qeac34-gt19",
-    code: "QE-AC-34",
-    location: "GT 19",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-079-cm37-gt19",
-    code: "CM3.7",
-    location: "GT 19",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-080-qlf3c-gt20",
-    code: "QLF-3C",
-    location: "GT 20",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-081-cm36-gt20",
-    code: "CM3.6",
-    location: "GT 20",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-082-cddoca5-gt20",
-    code: "CD DOCA 5",
-    location: "GT 20",
-    type: "CD" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-083-qeac26refeitrio-gt20",
-    code: "QE-AC-26 REFEITÓRIO",
-    location: "GT 20",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-084-cm35-gt20",
-    code: "CM3.5",
-    location: "GT 20",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-085-qlf3a-gt20",
-    code: "QLF-3A",
-    location: "GT 20",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-086-qeac25-gt20",
-    code: "QE-AC-25",
-    location: "GT 20",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-087-cm09-gt20",
-    code: "CM09",
-    location: "GT 20",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-088-qlf5a-gt21",
-    code: "QLF-5A",
-    location: "GT 21",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-089-cm45-gt21",
-    code: "CM4.5",
-    location: "GT 21",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-090-cm57-gt22",
-    code: "CM5.7",
-    location: "GT 22",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-091-cm54-gt22",
-    code: "CM5.4",
-    location: "GT 22",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-092-qeac33-gt22",
-    code: "QE-AC-33",
-    location: "GT 22",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-093-qlfext03-gt22",
-    code: "QLF-EXT.03",
-    location: "GT 22",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-094-qlfaux03-gt22",
-    code: "QLF-AUX 03",
-    location: "GT 22",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-095-cm55-gt22",
-    code: "CM5.5",
-    location: "GT 22",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-096-qlf5b-gt22",
-    code: "QLF-5B",
-    location: "GT 22",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-097-cm56-gt23",
-    code: "CM5.6",
-    location: "GT 23",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-098-qeac32-gt23",
-    code: "QE-AC-32",
-    location: "GT 23",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-099-qlf5c-gt23",
-    code: "QLF-5C",
-    location: "GT 23",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-100-cm53-gt24",
-    code: "CM5.3",
-    location: "GT 24",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-101-qeqc08-gt24",
-    code: "QE-QC-08",
-    location: "GT 24",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-102-cm44-baixobarra",
-    code: "CM4.4",
-    location: "BAIXO BARRA",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-103-qlf4b-baixobarra",
-    code: "QLF-4B",
-    location: "BAIXO BARRA",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-104-qeac11-corredormanuteno",
-    code: "QE-AC-11",
-    location: "CORREDOR MANUTENÇÃO",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-105-qeac19-corredormanuteno",
-    code: "QE-AC-19",
-    location: "CORREDOR MANUTENÇÃO",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-106-qecagcorredordoca3cag-semgt",
-    code: "QE-CAG CORREDOR DOCA 3 CAG",
-    location: "SEM GT",
-    type: "QE-CAG" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-107-qfbsprinklercag-semgt",
-    code: "QF-B-SPRINKLER CAG",
-    location: "SEM GT",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-108-qfbombasreuso-semgt",
-    code: "QF-BOMBAS REUSO",
-    location: "SEM GT",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-109-qfdg-semgt",
-    code: "QF-DG",
-    location: "SEM GT",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-110-qlf1btelecomdg-semgt",
-    code: "QLF-1B TELECOM DG",
-    location: "SEM GT",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-111-qeac06-sub2",
-    code: "QE-AC-06",
-    location: "SUB2",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-112-qlf2f-sub2",
-    code: "QLF-2F",
-    location: "SUB2",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-113-qlfext02-sub2",
-    code: "QLF-EXT02",
-    location: "SUB2",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-114-qlfauxext02-sub2",
-    code: "QLF-AUX-EXT.02",
-    location: "SUB2",
-    type: "QLF" as BoardType,
-    checklistType: "QLF" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-115-qcrgg2-sub2",
-    code: "QCR-GG2",
-    location: "SUB2",
-    type: "QCR" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-116-qrcgg1-sub1",
-    code: "QRC-GG1",
-    location: "SUB1",
-    type: "QRC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-117-qeac28-gt18",
-    code: "QE-AC-28",
-    location: "GT18",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-118-qeac27-qtofemininocorredoradm",
-    code: "QE-AC-27",
-    location: "QTO FEMININO CORREDOR ADM",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-119-qeac10-qtomasculinocorredormanuteno",
-    code: "QE-AC-10",
-    location: "QTO MASCULINO CORREDOR MANUTENÇÃO",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-120-qeac02-qtomasculinopraa",
-    code: "QE-AC-02",
-    location: "QTO MASCULINO PRAÇA",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-121-qeac13-qtorennerjckey",
-    code: "QE-AC-13",
-    location: "QTO RENNER JÓCKEY",
-    type: "QE-AC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-122-qfeelevador03-",
-    code: "QF-E-ELEVADOR-03",
-    location: "",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-123-qfeelevador04-",
-    code: "QF-E-ELEVADOR-04",
-    location: "",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-124-qfedafe04-",
-    code: "QF-E-DAFE-04",
-    location: "",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-125-qlceelevador0304-",
-    code: "QLC-E ELEVADOR 03/04",
-    location: "",
-    type: "QLC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-126-qfeelevador01-",
-    code: "QF-E ELEVADOR-01",
-    location: "",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-127-qfeelevador02-",
-    code: "QF-E-ELEVADOR 02",
-    location: "",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-128-qfedafe02-",
-    code: "QF-E DAFE 02",
-    location: "",
-    type: "QF" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-129-qlceelevador0102-",
-    code: "QLC-E ELEVADOR 01/02",
-    location: "",
-    type: "QLC" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-130-cm46-telhado",
-    code: "CM4.6",
-    location: "TELHADO",
-    type: "CM" as BoardType,
-    checklistType: "CM" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-  {
-    id: "bd-131-casademquinaelevadorcobase-telhado",
-    code: "CASA DE MÁQUINA ELEVADOR COBASE",
-    location: "TELHADO",
-    type: "Outros" as BoardType,
-    checklistType: "QE-AC" as ChecklistType,
-    description: "",
-    lastInspection: "-",
-    status: "Pendente",
-  },
-];
-
-const makeChecklist = (type: BoardType): ChecklistItem[] =>
-  (checklistByType[type as ChecklistType] || checklistByType["QE-AC"]).map((label, index) => ({
-    id: index,
-    label,
-    answer: "Conforme",
-    note: "",
-  }));
-
-const initialNonConformities: NonConformity[] = [];
+const monthLabels = ["Abr", "Mai", "Jun", "Jul", "Ago", "Set"];
 
 const normalizeBoardCode = (code: string) => code.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
@@ -1478,95 +120,103 @@ const formatActivityDate = (value: string) => {
   });
 };
 
-const monthLabels = ["Abr", "Mai", "Jun", "Jul", "Ago", "Set"];
-
-const linkedNonConformities = initialNonConformities.map((issue) => ({
-  ...issue,
-  boardId: initialBoards.find(
-    (board) => normalizeBoardCode(board.code) === normalizeBoardCode(issue.board),
-  )?.id,
-}));
-
-const initialInspections: InspectionRecord[] = [];
-
-const STORAGE_KEYS = {
-  accounts: "preventiva-accounts",
-  boards: "preventiva-boards",
-  user: "preventiva-user",
-} as const;
-
-const readStored = <T,>(key: string, fallback: T): T => {
-  const raw = localStorage.getItem(key);
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-};
-
-const emptyBoard = (): Board => ({
-  id: "",
-  code: "",
-  location: "",
-  type: "QLF",
-  checklistType: "QLF",
-  description: "",
-  lastInspection: "-",
-  status: "Pendente",
-});
-
-const makeBoardId = (code: string, location: string) =>
-  `${normalizeBoardCode(code)}-${normalizeBoardCode(location)}`.toLowerCase();
-
 const defaultChecklistFor = (type: BoardType): ChecklistType =>
   type in checklistByType ? (type as ChecklistType) : "QE-AC";
 
+const makeChecklist = (type: ChecklistType, definitions: ChecklistDefinition[]): ChecklistItem[] => {
+  const labels = checklistByType[type] || checklistByType["QE-AC"];
+  return labels.map((label, index) => ({
+    id: definitions[index]?.id || String(index),
+    label,
+    answer: "Conforme" as InspectionAnswer,
+    note: "",
+    definitionId: definitions[index]?.id,
+  }));
+};
+
 function App() {
-  const [accounts, setAccounts] = useState<User[]>(() =>
-    readStored<User[]>(STORAGE_KEYS.accounts, users),
-  );
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const savedUser = sessionStorage.getItem(STORAGE_KEYS.user);
-    return savedUser ? (JSON.parse(savedUser) as User) : null;
-  });
+  const { user: currentUser, loading: authLoading } = useAuthContext();
+  const { data: boardsData } = useBoards();
+  const { data: checklistData } = useChecklistDefinitions(currentUser ? (boardsData?.[0]?.checklist_type as ChecklistType) || "QE-AC" : "QE-AC");
+  const { data: inspectionsData } = useInspections();
+  const { data: nonConformitiesData } = useNonConformities();
+  const queryClient = useQueryClient();
+
+  const createBoardMutation = useCreateBoard();
+  const updateBoardMutation = useUpdateBoard();
+  const createInspectionMutation = useCreateInspection();
+  const createNonConformitiesMutation = useCreateNonConformities();
+  const updateNonConformityMutation = useUpdateNonConformity();
+
   const [activeView, setActiveView] = useState<
     "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users"
   >("overview");
-  const [boards, setBoards] = useState<Board[]>(() =>
-    readStored<Board[]>(STORAGE_KEYS.boards, initialBoards),
-  );
-  const [selectedBoard, setSelectedBoard] = useState<Board>(
-    () => boards[0] ?? emptyBoard(),
-  );
-  const [newBoard, setNewBoard] = useState<Board>(emptyBoard);
+  const [selectedBoardId, setSelectedBoardId] = useState<string>("");
+  const [newBoard, setNewBoard] = useState<Partial<Board>>({});
   const [showBoardForm, setShowBoardForm] = useState(false);
   const [search, setSearch] = useState("");
-  const [boardTypeFilter, setBoardTypeFilter] = useState<
-    "Todos" | BoardType
-  >("Todos");
-  const [boardStatusFilter, setBoardStatusFilter] = useState<
-    "Todos" | Board["status"]
-  >("Todos");
+  const [boardTypeFilter, setBoardTypeFilter] = useState<"Todos" | BoardType>("Todos");
+  const [boardStatusFilter, setBoardStatusFilter] = useState<"Todos" | Board["status"]>("Todos");
   const [locationFilter, setLocationFilter] = useState("Todos");
-  const [checklist, setChecklist] = useState(() =>
-    makeChecklist(boards[0]?.checklistType ?? "QE-AC"),
-  );
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [completed, setCompletionModal] = useState(false);
-  const [nonConformityList, setNonConformityList] = useState(linkedNonConformities);
-  const [inspectionHistory, setInspectionHistory] = useState(initialInspections);
-  const [issueFilter, setIssueFilter] = useState<"Todas" | NonConformityStatus>(
-    "Todas",
-  );
-  const [issueTypeFilter, setIssueTypeFilter] = useState<
-    "Todos" | "Todos os tipos" | BoardType
-  >("Todos");
+  const [issueFilter, setIssueFilter] = useState<"Todas" | NonConformityStatus>("Todas");
+  const [issueTypeFilter, setIssueTypeFilter] = useState<"Todos" | "Todos os tipos" | BoardType>("Todos");
   const [newTechnicianName, setNewTechnicianName] = useState("");
-  const [newTechnicianUsername, setNewTechnicianUsername] = useState("");
+  const [newTechnicianEmail, setNewTechnicianEmail] = useState("");
   const [newTechnicianPassword, setNewTechnicianPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<UserRole>("tecnico");
-  // Distinct locations, ordered the way a technician walks the building:
-  // "GT 02" before "GT 10", then the named areas alphabetically.
+
+  // Map database boards to app format
+  const boards: Board[] = useMemo(() => {
+    if (!boardsData) return [];
+    return boardsData.map((b) => ({
+      ...b,
+      id: b.id,
+      code: b.code,
+      location: b.location,
+      type: b.type as BoardType,
+      checklist_type: b.checklist_type,
+      description: b.description,
+      last_inspection: b.last_inspection,
+      status: (b.status || "Pendente") as "Em dia" | "Pendente",
+      created_at: b.created_at,
+      updated_at: b.updated_at,
+    }));
+  }, [boardsData]);
+
+  const selectedBoard = useMemo(() => {
+    return boards.find((b) => b.id === selectedBoardId) || boards[0];
+  }, [boards, selectedBoardId]);
+
+  const nonConformityList = useMemo(() => {
+    if (!nonConformitiesData) return [];
+    return nonConformitiesData as unknown as NonConformity[];
+  }, [nonConformitiesData]);
+
+  const inspectionHistory: InspectionRecord[] = useMemo(() => {
+    if (!inspectionsData) return [];
+    return inspectionsData.map((i) => {
+      const board = boards.find((b) => b.id === i.board_id);
+      return {
+        id: i.id,
+        boardId: i.board_id,
+        board: board?.code || "",
+        date: i.date,
+        performedBy: i.performed_by_name,
+      };
+    });
+  }, [inspectionsData, boards]);
+
+  // Load checklist when board changes
+  useEffect(() => {
+    if (selectedBoard && checklistData) {
+      const type = selectedBoard.checklist_type as ChecklistType;
+      setChecklist(makeChecklist(type, checklistData));
+    }
+  }, [selectedBoard, checklistData]);
+
+  // Locations
   const locationOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const board of boards) {
@@ -1588,24 +238,17 @@ function App() {
   }, [boards]);
 
   const locationCount = locationOptions.length;
-
   const hasActiveFilters =
     search.trim() !== "" ||
     boardTypeFilter !== "Todos" ||
     boardStatusFilter !== "Todos" ||
     locationFilter !== "Todos";
 
-  // A board can be renamed/relocated out from under the active filter; fall back
-  // to "Todos" instead of silently showing an empty catalog.
   const activeLocationFilter =
     locationFilter === "Todos" ||
     locationOptions.some((option) => option.location === locationFilter)
       ? locationFilter
       : "Todos";
-
-  const persistBoards = (next: Board[]) => {
-    localStorage.setItem(STORAGE_KEYS.boards, JSON.stringify(next));
-  };
 
   const lastInspectionByBoard = useMemo(() => {
     const latest = new Map<string, string>();
@@ -1625,107 +268,77 @@ function App() {
         .map((board) => {
           const last = lastInspectionByBoard.get(board.id);
           return last
-            ? { ...board, status: "Em dia" as const, lastInspection: last }
+            ? { ...board, status: "Em dia" as const, last_inspection: last }
             : board;
         })
         .filter((board) => {
           const matchesSearch = `${board.code} ${board.location}`
             .toLowerCase()
             .includes(search.toLowerCase());
-          const matchesType =
-            boardTypeFilter === "Todos" || board.type === boardTypeFilter;
-          const matchesStatus =
-            boardStatusFilter === "Todos" || board.status === boardStatusFilter;
-          const matchesLocation =
-            activeLocationFilter === "Todos" ||
-            board.location === activeLocationFilter;
-          return (
-            matchesSearch && matchesType && matchesStatus && matchesLocation
-          );
+          const matchesType = boardTypeFilter === "Todos" || board.type === boardTypeFilter;
+          const matchesStatus = boardStatusFilter === "Todos" || board.status === boardStatusFilter;
+          const matchesLocation = activeLocationFilter === "Todos" || board.location === activeLocationFilter;
+          return matchesSearch && matchesType && matchesStatus && matchesLocation;
         }),
-    [
-      activeLocationFilter,
-      boardStatusFilter,
-      boardTypeFilter,
-      boards,
-      lastInspectionByBoard,
-      search,
-    ],
+    [activeLocationFilter, boardStatusFilter, boardTypeFilter, boards, lastInspectionByBoard, search]
   );
 
   const chooseBoard = (board: Board) => {
-    setSelectedBoard(board);
-    setChecklist(makeChecklist(board.checklistType));
-    setCompletionModal(false);
+    setSelectedBoardId(board.id);
+    setShowBoardForm(false);
     setActiveView("inspection");
   };
 
-  const updateBoardField = <
-    K extends keyof Pick<Board, "code" | "description" | "location" | "type" | "checklistType">,
-  >(
-    id: string,
-    field: K,
-    value: Pick<Board, "code" | "description" | "location" | "type" | "checklistType">[K],
-  ) => {
-    setBoards((items) => {
-      const next = items.map((board) =>
-        board.id === id ? { ...board, [field]: value } : board,
-      );
-      persistBoards(next);
-      return next;
-    });
+  const updateBoardField = async (id: string, field: string, value: any) => {
+    await updateBoardMutation.mutateAsync({ id, [field]: value });
+    queryClient.invalidateQueries({ queryKey: ['boards'] });
   };
 
-  const updateNewBoardField = <
-    K extends keyof Pick<Board, "code" | "description" | "location" | "type" | "checklistType">,
-  >(
-    field: K,
-    value: Pick<Board, "code" | "description" | "location" | "type" | "checklistType">[K],
-  ) => {
+  const updateNewBoardField = (field: string, value: any) => {
     setNewBoard((board) => {
       const next = { ...board, [field]: value };
-      // Keep the checklist aligned with the type unless it was already
-      // overridden by hand.
-      if (field === "type") next.checklistType = defaultChecklistFor(value as BoardType);
+      if (field === "type") next.checklist_type = defaultChecklistFor(value as BoardType);
       return next;
     });
   };
 
-  const registerBoard = (event: FormEvent<HTMLFormElement>) => {
+  const registerBoard = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const code = newBoard.code.trim();
+    const code = newBoard.code?.trim();
     if (!code) return;
-    const id = makeBoardId(code, newBoard.location);
-    setBoards((items) => {
-      const without = items.filter((board) => board.id !== id);
-      const next = [...without, { ...newBoard, code, id, lastInspection: "-", status: "Pendente" as const }];
-      persistBoards(next);
-      return next;
+    await createBoardMutation.mutateAsync({
+      code,
+      location: newBoard.location || "",
+      type: newBoard.type || "QLF",
+      checklist_type: newBoard.checklist_type || "QLF",
+      description: newBoard.description || "",
+      status: "Pendente" as const,
+      last_inspection: null,
     });
-    setNewBoard(emptyBoard());
+    setNewBoard({});
     setShowBoardForm(false);
   };
 
-  const updateAnswer = (id: number, answer: InspectionAnswer) => {
+  const updateAnswer = (id: string, answer: InspectionAnswer) => {
     setChecklist((items) =>
-      items.map((item) => (item.id === id ? { ...item, answer } : item)),
+      items.map((item) => (item.id === id ? { ...item, answer } : item))
     );
   };
 
-  const updateNote = (id: number, note: string) => {
+  const updateNote = (id: string, note: string) => {
     setChecklist((items) =>
-      items.map((item) => (item.id === id ? { ...item, note } : item)),
+      items.map((item) => (item.id === id ? { ...item, note } : item))
     );
   };
 
-  const updatePhoto = (id: number, file?: File) => {
+  const updatePhoto = (id: string, file?: File) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       setChecklist((items) =>
         items.map((item) =>
-          item.id === id ? { ...item, photo: String(reader.result) } : item,
-        ),
+          item.id === id ? { ...item, photo: String(reader.result) } : item
+        )
       );
     };
     reader.readAsDataURL(file);
@@ -1737,11 +350,12 @@ function App() {
   const filteredIssues = useMemo(() => {
     const groups = nonConformityList.reduce<Record<string, NonConformity[]>>(
       (result, issue) => {
-        const groupKey = `${issue.inspection}-${issue.boardId || normalizeBoardCode(issue.board)}`;
+        const inspectionId = issue.inspection_id || 'unknown';
+        const groupKey = `${inspectionId}-${issue.board_id || normalizeBoardCode(issue.board_code)}`;
         result[groupKey] = [...(result[groupKey] || []), issue];
         return result;
       },
-      {},
+      {}
     );
     return Object.values(groups)
       .map((items) => ({ ...items[0], items }))
@@ -1754,6 +368,7 @@ function App() {
             issue.type === issueTypeFilter),
       );
   }, [issueFilter, issueTypeFilter, nonConformityList]);
+
   const openIssues = nonConformityList.filter(
     (issue) => issue.status !== "Resolvida",
   ).length;
@@ -1789,21 +404,19 @@ function App() {
         key: `issue-${issue.id}`,
         icon: "!",
         title: "Não conformidade registrada",
-        description: `${issue.board} · ${issue.item}`,
+        description: `${issue.board_code} · ${issue.item}`,
         date: issue.date,
         tone: "red",
       },
-      ...(issue.resolvedAt
-        ? [
-            {
-              key: `resolved-${issue.id}`,
-              icon: "✓",
-              title: "Não conformidade resolvida",
-              description: `${issue.board} · ${issue.item}`,
-              date: issue.resolvedAt,
-              tone: "green",
-            },
-          ]
+      ...(issue.resolved_at
+        ? [{
+          key: `resolved-${issue.id}`,
+          icon: "✓",
+          title: "Não conformidade resolvida",
+          description: `${issue.board_code} · ${issue.item}`,
+          date: issue.resolved_at,
+          tone: "green",
+        }]
         : []),
     ]);
     return [...inspections, ...issues]
@@ -1817,21 +430,83 @@ function App() {
   }, [inspectionHistory, nonConformityList]);
 
   const isSupervisor = currentUser?.role === "supervisor";
+  const { signOut: authSignOut } = useAuthContext();
 
-  const login = (username: string, password: string) => {
-    const user = accounts.find((candidate) => candidate.username === username && candidate.password === password);
-    if (!user) return false;
-    sessionStorage.setItem("preventiva-user", JSON.stringify(user));
-    setCurrentUser(user);
-    return true;
+  const handleLogout = async () => {
+    await authSignOut();
+    queryClient.clear();
   };
 
-  const logout = () => {
-    sessionStorage.removeItem("preventiva-user");
-    setCurrentUser(null);
+  const addTechnician = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!newTechnicianEmail || !newTechnicianPassword || !newTechnicianName) return;
+    await supabase.auth.signUp({
+      email: newTechnicianEmail,
+      password: newTechnicianPassword,
+      options: {
+        data: {
+          name: newTechnicianName,
+          role: newUserRole,
+        },
+      },
+    });
+    setNewTechnicianName("");
+    setNewTechnicianEmail("");
+    setNewTechnicianPassword("");
+    setNewUserRole("tecnico");
   };
 
-  if (!currentUser) return <LoginScreen onLogin={login} />;
+  const setCompleted = async (value: boolean) => {
+    if (!selectedBoard || !currentUser) return;
+
+    const inspectionId = `INS-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${selectedBoard.id}-${Date.now()}`;
+
+    if (value && nonConformities > 0) {
+      const newIssues = checklist
+        .filter((item) => item.answer === "Não conforme")
+        .map((item) => ({
+          inspection_id: inspectionId,
+          board_id: selectedBoard.id,
+          board_code: selectedBoard.code,
+          location: selectedBoard.location,
+          type: selectedBoard.checklist_type,
+          item: item.label,
+          description: item.note || "Item reprovado durante a inspeção.",
+          photo: item.photo || null,
+          performed_by: currentUser.id,
+          performed_by_name: currentUser.name,
+          date: new Date().toISOString().split('T')[0],
+          priority: "Alta" as const,
+          status: "Aberta" as const,
+        }));
+      await createNonConformitiesMutation.mutateAsync(newIssues as any);
+    }
+
+    const inspectionRecord = {
+      board_id: selectedBoard.id,
+      performed_by: currentUser?.id || null,
+      performed_by_name: currentUser?.name || "",
+      date: new Date().toISOString().split('T')[0],
+    };
+
+    await createInspectionMutation.mutateAsync(inspectionRecord as any);
+    queryClient.invalidateQueries({ queryKey: ['boards'] });
+
+    setCompletionModal(value);
+  };
+
+  const updateIssueStatus = async (id: string, status: NonConformityStatus) => {
+    const resolvedAt = new Date().toISOString().split('T')[0];
+    await updateNonConformityMutation.mutateAsync({
+      id,
+      status,
+      resolved_after_inspection: status === "Resolvida",
+      resolved_at: status === "Resolvida" ? resolvedAt : null,
+    });
+  };
+
+  if (authLoading) return <div className="loading">Carregando...</div>;
+  if (!currentUser) return <LoginScreen />;
 
   const navigate = (view: "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users") => {
     if (!isSupervisor && (view === "editBoards" || view === "users")) {
@@ -1839,76 +514,6 @@ function App() {
       return;
     }
     setActiveView(view);
-  };
-
-  const addTechnician = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const username = newTechnicianUsername.trim().toLowerCase();
-    if (!newTechnicianName.trim() || !username || !newTechnicianPassword || accounts.some((account) => account.username === username)) return;
-    setAccounts((items) => [...items, { name: newTechnicianName.trim(), username, password: newTechnicianPassword, role: newUserRole }]);
-    localStorage.setItem("preventiva-accounts", JSON.stringify([...accounts, { name: newTechnicianName.trim(), username, password: newTechnicianPassword, role: newUserRole }]));
-    setNewTechnicianName("");
-    setNewTechnicianUsername("");
-    setNewTechnicianPassword("");
-    setNewUserRole("tecnico");
-  };
-
-  const removeTechnician = (username: string) => {
-    setAccounts((items) => {
-      const nextAccounts = items.filter((account) => account.username !== username || account.role === "supervisor");
-      localStorage.setItem("preventiva-accounts", JSON.stringify(nextAccounts));
-      return nextAccounts;
-    });
-  };
-
-  const setCompleted = (value: boolean) => {
-    const today = new Date().toLocaleDateString("pt-BR");
-    const inspectionId = `INS-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${selectedBoard.id}-${Date.now()}`;
-    if (value && nonConformities > 0) {
-      const newIssues = checklist
-        .filter((item) => item.answer === "Não conforme")
-        .map((item, index) => ({
-          id: Date.now() + index,
-          inspection: inspectionId,
-          board: selectedBoard.code,
-          boardId: selectedBoard.id,
-          location: selectedBoard.location,
-          type: selectedBoard.checklistType,
-          item: item.label,
-          description: item.note || "Item reprovado durante a inspeção.",
-          photo: item.photo,
-          performedBy: currentUser.name,
-          date: today,
-          priority: "Alta" as const,
-          status: "Aberta" as const,
-        }));
-      setNonConformityList((issues) => [...newIssues, ...issues]);
-    }
-    if (value && !inspectionHistory.some((inspection) => inspection.id === inspectionId)) {
-      setInspectionHistory((history) => [...history, { id: inspectionId, boardId: selectedBoard.id, board: selectedBoard.code, date: today, performedBy: currentUser.name }]);
-      setBoards((items) => {
-        const next = items.map((board) => board.id === selectedBoard.id ? { ...board, status: "Em dia" as const, lastInspection: today } : board);
-        persistBoards(next);
-        return next;
-      });
-    }
-    setCompletionModal(value);
-  };
-
-  const updateIssueStatus = (id: number, status: NonConformityStatus) => {
-    const resolvedAt = new Date().toLocaleDateString("pt-BR");
-    setNonConformityList((issues) =>
-      issues.map((issue) =>
-        issue.id === id
-          ? {
-              ...issue,
-              status,
-              resolvedAfterInspection: status === "Resolvida",
-              resolvedAt: status === "Resolvida" ? resolvedAt : undefined,
-            }
-          : issue,
-      ),
-    );
   };
 
   return (
@@ -1962,10 +567,10 @@ function App() {
           </>
         </nav>
         <div className="sidebar-bottom">
-          <span className="avatar">LF</span>
+          <span className="avatar">{currentUser?.name?.[0]}{currentUser?.name?.split(' ').slice(-1)[0]?.[0] || ''}</span>
           <div>
-            <strong>Luiz Felipe</strong>
-            <small>Supervisor técnico</small>
+            <strong>{currentUser?.name}</strong>
+            <small>{currentUser?.role === "supervisor" ? "Supervisor técnico" : "Técnico"}</small>
           </div>
           <span className="dots">•••</span>
         </div>
@@ -1994,8 +599,7 @@ function App() {
               <IssueStat
                 tone="amber"
                 value={String(
-                  nonConformityList.filter((issue) => issue.status === "Aberta")
-                    .length,
+                  nonConformityList.filter((issue) => issue.status === "Aberta").length
                 )}
                 label="Aguardando ação"
                 icon="◷"
@@ -2047,9 +651,8 @@ function App() {
                   <option value="CD">CD</option>
                   <option value="QF">QF</option>
                   <option value="QLC">QLC</option>
-                <option value="QCR">QCR</option><option value="QRC">QRC</option>
+                <option value="QCR">QCR</option>
                 <option value="QRC">QRC</option>
-                  <option value="QRC">QRC</option>
                   <option value="QE-CAG">QE-CAG</option>
                   <option value="Outros">Outros</option>
                 </select>
@@ -2095,7 +698,7 @@ function App() {
         )}
         <header className="topbar">
           <div>
-            <p className="eyebrow">MANUTENÇÃO PREDIAL / 24 SET 2026</p>
+            <p className="eyebrow">MANUTENÇÃO PREDIAL / {new Date().toLocaleDateString("pt-BR")}</p>
             <h1>
               {activeView === "inspection"
                 ? "Executar preventiva"
@@ -2105,18 +708,18 @@ function App() {
                     ? "Editar quadros"
                     : activeView === "users"
                       ? "Usuários e técnicos"
-                  : activeView === "issues"
-                    ? "Não conformidades"
-                    : "Bom dia, Luiz"}
+                    : activeView === "issues"
+                      ? "Não conformidades"
+                      : `Bom dia, ${currentUser?.name?.split(' ')[0] || "Usuário"}`}
             </h1>
           </div>
           <div className="top-actions">
             <button className="icon-button" aria-label="Notificações">
               ♢<span className="notification-dot" />
             </button>
-            <button className="user-button" onClick={logout} title="Sair">
-              <span className="avatar small">LF</span>
-              <span>{currentUser.name}</span>⌄
+            <button className="user-button" onClick={handleLogout} title="Sair">
+              <span className="avatar small">{currentUser?.name?.[0]}{currentUser?.name?.split(' ').slice(-1)[0]?.[0] || ''}</span>
+              <span>{currentUser?.name}</span>⌄
             </button>
           </div>
         </header>
@@ -2175,7 +778,7 @@ function App() {
                     <h3>Execução das preventivas</h3>
                     <p>Preventivas registradas nos últimos 6 meses</p>
                   </div>
-                    <span className="chart-total">{uniqueInspections.size} registrada(s)</span>
+                  <span className="chart-total">{uniqueInspections.size} registrada(s)</span>
                 </div>
                 <div className="chart">
                   <div className="chart-axis">
@@ -2249,7 +852,7 @@ function App() {
                 <button
                   className="primary-button"
                   onClick={() => {
-                    setNewBoard(emptyBoard());
+                    setNewBoard({});
                     setShowBoardForm((value) => !value);
                   }}
                 >
@@ -2264,7 +867,7 @@ function App() {
                   <label>
                     Código do quadro
                     <input
-                      value={newBoard.code}
+                      value={newBoard.code || ""}
                       onChange={(event) => updateNewBoardField("code", event.target.value)}
                       placeholder="QLF-1A"
                       required
@@ -2273,7 +876,7 @@ function App() {
                   <label>
                     Local
                     <input
-                      value={newBoard.location}
+                      value={newBoard.location || ""}
                       onChange={(event) => updateNewBoardField("location", event.target.value)}
                       placeholder="GT 01"
                     />
@@ -2281,7 +884,7 @@ function App() {
                   <label>
                     Descrição
                     <input
-                      value={newBoard.description}
+                      value={newBoard.description || ""}
                       onChange={(event) => updateNewBoardField("description", event.target.value)}
                       placeholder="Quadro de força e luz"
                     />
@@ -2289,7 +892,7 @@ function App() {
                   <label>
                     Tipo
                     <select
-                      value={newBoard.type}
+                      value={newBoard.type || "QLF"}
                       onChange={(event) =>
                         updateNewBoardField("type", event.target.value as BoardType)
                       }
@@ -2310,10 +913,10 @@ function App() {
                   <label>
                     Checklist
                     <select
-                      value={newBoard.checklistType}
+                      value={newBoard.checklist_type || "QLF"}
                       onChange={(event) =>
                         updateNewBoardField(
-                          "checklistType",
+                          "checklist_type",
                           event.target.value as ChecklistType,
                         )
                       }
@@ -2357,7 +960,8 @@ function App() {
                 <option value="CD">CD</option>
                 <option value="QF">QF</option>
                 <option value="QLC">QLC</option>
-                <option value="QCR">QCR</option><option value="QRC">QRC</option>
+                <option value="QCR">QCR</option>
+                <option value="QRC">QRC</option>
                 <option value="QE-CAG">QE-CAG</option>
                 <option value="Outros">Outros</option>
               </select>
@@ -2412,7 +1016,7 @@ function App() {
                   <span>
                     <span className="type-pill">{board.type}</span>
                   </span>
-                  <span>{board.lastInspection}</span>
+                  <span>{board.last_inspection || "-"}</span>
                   <span className={board.status === "Em dia" ? "status good" : "status pending"}>
                     <i />
                     {board.status}
@@ -2426,7 +1030,7 @@ function App() {
                   <strong>Nenhum quadro encontrado</strong>
                   <p>
                     {boards.length === 0
-                      ? "Nenhum quadro cadastrado. Use “+ Cadastrar quadro” para começar."
+                      ? "Nenhum quadro cadastrado. Use "+'"'+'+ Cadastrar quadro'+'"'+" para começar."
                       : "Ajuste a busca ou os filtros para ver outros quadros."}
                   </p>
                 </div>
@@ -2475,9 +1079,12 @@ function App() {
                   <select className="inline-input" value={board.type} onChange={(event) => updateBoardField(board.id, "type", event.target.value as BoardType)} aria-label={`Tipo do quadro ${board.code}`}>
                     <option value="QLF">QLF</option><option value="CM">CM</option><option value="QE-AC">QE-AC</option><option value="CT">CT Automação</option><option value="CD">CD</option><option value="QF">QF</option><option value="QLC">QLC</option><option value="QCR">QCR</option><option value="QRC">QRC</option><option value="QE-CAG">QE-CAG</option><option value="Outros">Outros</option>
                   </select>
-                  <label className="checklist-editor"><span>Checklist</span><select className="inline-input" value={board.checklistType} onChange={(event) => updateBoardField(board.id, "checklistType", event.target.value as ChecklistType)} aria-label={`Checklist do quadro ${board.code}`}><option value="QLF">QLF</option><option value="CM">CM</option><option value="QE-AC">QE-AC</option><option value="CT">CT Automação</option></select></label>
-                  <span className="edit-inspection-date">{board.lastInspection}</span>
-                  <span className={`edit-status ${board.status === "Em dia" ? "status good" : "status pending"}`}><i />{board.status}</span>
+                  <label className="checklist-editor"><span>Checklist</span><select className="inline-input" value={board.checklist_type} onChange={(event) => updateBoardField(board.id, "checklist_type", event.target.value as ChecklistType)} aria-label={`Checklist do quadro ${board.code}`}><option value="QLF">QLF</option><option value="CM">CM</option><option value="QE-AC">QE-AC</option><option value="CT">CT Automação</option></select></label>
+                  <span className="edit-inspection-date">{board.last_inspection || "-"}</span>
+                  <span className={`edit-status ${board.status === "Em dia" ? "status good" : "status pending"}`}>
+                    <i />
+                    {board.status}
+                  </span>
                   <span className="row-actions" aria-label="Edição automática" />
                 </div>
               ))}
@@ -2492,17 +1099,32 @@ function App() {
               <form className="panel user-form" onSubmit={addTechnician}>
                 <h3>Cadastrar usuário</h3>
                 <label>Nome<input value={newTechnicianName} onChange={(event) => setNewTechnicianName(event.target.value)} placeholder="Nome completo" required /></label>
-                <label>Usuário<input type="text" value={newTechnicianUsername} onChange={(event) => setNewTechnicianUsername(event.target.value)} placeholder="usuario" required /></label>
-                <label>Senha<input type="password" value={newTechnicianPassword} onChange={(event) => setNewTechnicianPassword(event.target.value)} placeholder="Senha de acesso" required /></label>
+                <label>E-mail<input type="email" value={newTechnicianEmail} onChange={(event) => setNewTechnicianEmail(event.target.value)} placeholder="usuario@exemplo.com" autoComplete="email" required /></label>
+                <label>Senha<input type="password" value={newTechnicianPassword} onChange={(event) => setNewTechnicianPassword(event.target.value)} placeholder="Senha de acesso" autoComplete="new-password" required /></label>
                 <label>Papel<select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value as UserRole)} required><option value="tecnico">Técnico</option><option value="supervisor">Supervisor</option></select></label>
                 <button className="primary-button" type="submit">Cadastrar usuário</button>
               </form>
-              <div className="panel users-list"><div className="panel-heading"><div><h3>Contas cadastradas</h3><p>O técnico acessa somente a execução.</p></div></div>{accounts.map((account) => <div className="user-row" key={account.username}><span className="avatar">{account.name.slice(0, 2).toUpperCase()}</span><div><strong>{account.name}</strong><small>{account.username}</small></div><span className="role-pill">{account.role === "supervisor" ? "Supervisor" : "Técnico"}</span>{account.role === "tecnico" && <button className="remove-user" onClick={() => removeTechnician(account.username)} aria-label={`Remover ${account.name}`}>×</button>}</div>)}</div>
+              <div className="panel users-list">
+                <div className="panel-heading">
+                  <div>
+                    <h3>Perfis cadastrados</h3>
+                    <p>Usuários autenticados via Supabase Auth</p>
+                  </div>
+                </div>
+                <div className="empty-state">
+                  <span>ℹ</span>
+                  <strong>Gerenciamento via Supabase</strong>
+                  <p>
+                    Usuários são criados via e-mail/senha no Supabase Auth.
+                    Visualize e gerencie em: supabase.com/dashboard
+                  </p>
+                </div>
+              </div>
             </div>
           </section>
         )}
 
-        {activeView === "inspection" && (
+        {activeView === "inspection" && selectedBoard && (
           <section className="inspection-view">
             <div className="inspection-head">
               <button
@@ -2528,7 +1150,7 @@ function App() {
                     Periodicidade <strong>Mensal</strong>
                   </span>
                   <span>
-                    Responsável <strong>{currentUser.name}</strong>
+                    Responsável <strong>{currentUser?.name}</strong>
                   </span>
                 </div>
               </div>
@@ -2597,42 +1219,42 @@ function App() {
                             {item.photo && <img className="check-photo-preview" src={item.photo} alt={`Registro do item ${item.label}`} />}
                           </>
                         )}
-                      </div>
-                      <div
-                        className="answer-group"
-                        role="group"
-                        aria-label={`Resposta para ${item.label}`}
-                      >
-                        <button
-                          className={
-                            item.answer === "Conforme"
-                              ? "answer selected good-answer"
-                              : "answer"
-                          }
-                          onClick={() => updateAnswer(item.id, "Conforme")}
+                        <div
+                          className="answer-group"
+                          role="group"
+                          aria-label={`Resposta para ${item.label}`}
                         >
-                          ✓
-                        </button>
-                        <button
-                          className={
-                            item.answer === "Não conforme"
-                              ? "answer selected bad-answer"
-                              : "answer"
-                          }
-                          onClick={() => updateAnswer(item.id, "Não conforme")}
-                        >
-                          !
-                        </button>
-                        <button
-                          className={
-                            item.answer === "N/A"
-                              ? "answer selected na-answer"
-                              : "answer"
-                          }
-                          onClick={() => updateAnswer(item.id, "N/A")}
-                        >
-                          N/A
-                        </button>
+                          <button
+                            className={
+                              item.answer === "Conforme"
+                                ? "answer selected good-answer"
+                                : "answer"
+                            }
+                            onClick={() => updateAnswer(item.id, "Conforme")}
+                          >
+                            ✓
+                          </button>
+                          <button
+                            className={
+                              item.answer === "Não conforme"
+                                ? "answer selected bad-answer"
+                                : "answer"
+                            }
+                            onClick={() => updateAnswer(item.id, "Não conforme")}
+                          >
+                            !
+                          </button>
+                          <button
+                            className={
+                              item.answer === "N/A"
+                                ? "answer selected na-answer"
+                                : "answer"
+                            }
+                            onClick={() => updateAnswer(item.id, "N/A")}
+                          >
+                            N/A
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -2709,10 +1331,10 @@ function App() {
             <span className="success-icon">✓</span>
             <h2>Preventiva finalizada</h2>
             <p>
-              A inspeção de <strong>{selectedBoard.code}</strong> foi registrada
+              A inspeção de <strong>{selectedBoard?.code}</strong> foi registrada
               com sucesso.
             </p>
-            <p className="performed-by">Realizada por <strong>{currentUser.name}</strong></p>
+            <p className="performed-by">Realizada por <strong>{currentUser?.name}</strong></p>
             {nonConformities > 0 && (
               <p className="modal-warning">
                 {nonConformities} não conformidade(s) foram encaminhadas para
@@ -2722,7 +1344,7 @@ function App() {
             <button
               className="primary-button"
               onClick={() => {
-                setCompleted(false);
+                setCompletionModal(false);
                 setActiveView("overview");
               }}
             >
@@ -2756,12 +1378,13 @@ function IssueStat({
     </div>
   );
 }
+
 function IssueCard({
   issue,
   onStatusChange,
 }: {
   issue: NonConformity;
-  onStatusChange: (id: number, status: NonConformityStatus) => void;
+  onStatusChange: (id: string, status: NonConformityStatus) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const items = issue.items || [issue];
@@ -2806,7 +1429,7 @@ function IssueCard({
             <strong>Itens para resolver</strong>
             <span>Atualize o status de cada ocorrência</span>
           </div>
-          {items.map((item) => (
+          {items.map((item: NonConformity) => (
             <div className="issue-detail-row" key={item.id}>
               <div>
                 <strong>{item.item}</strong>
@@ -2816,9 +1439,9 @@ function IssueCard({
                   <span className={`priority ${item.priority.toLowerCase()}`}>
                     {item.priority}
                   </span>
-                  {item.resolvedAfterInspection && (
+                  {item.resolved_after_inspection && (
                     <span className="resolved-after">
-                      ✓ Resolvida após a preventiva em {item.resolvedAt}
+                      ✓ Resolvida após a preventiva em {item.resolved_at}
                     </span>
                   )}
                 </div>
@@ -2844,6 +1467,7 @@ function IssueCard({
     </article>
   );
 }
+
 function Metric({
   label,
   value,
@@ -2874,6 +1498,7 @@ function Metric({
     </div>
   );
 }
+
 function Activity({
   icon,
   title,
@@ -2899,17 +1524,18 @@ function Activity({
   );
 }
 
-export default App;
-
-function LoginScreen({ onLogin }: { onLogin: (username: string, password: string) => boolean }) {
-  const [username, setUsername] = useState("");
+function LoginScreen() {
+  const { signIn } = useAuth();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!onLogin(username.trim().toLowerCase(), password)) {
-      setError("Usuário ou senha inválidos.");
+    try {
+      await signIn(email, password);
+    } catch (err: any) {
+      setError(err.message || "Erro ao fazer login");
     }
   };
 
@@ -2919,15 +1545,17 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
         <div className="brand login-brand"><span className="brand-mark">P</span><span>Preventiva</span></div>
         <p className="eyebrow">BARRA SHOPPING SUL / MANUTENÇÃO</p>
         <h1>Acesse o sistema</h1>
-        <p className="login-subtitle">Entre com seu perfil para executar ou administrar as preventivas.</p>
+        <p className="login-subtitle">Entre com seu e-mail para executar ou administrar as preventivas.</p>
         <form onSubmit={submit} className="login-form">
-          <label>Usuário<input type="text" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="seu.usuario" autoComplete="username" required /></label>
+          <label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="seu.email@exemplo.com" autoComplete="email" required /></label>
           <label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" autoComplete="current-password" required /></label>
           {error && <p className="login-error">{error}</p>}
           <button className="primary-button" type="submit">Entrar no sistema</button>
         </form>
-        <div className="login-help"><strong>Perfis configurados</strong><span>Supervisor: acesso administrativo</span><span>Técnico: execução de preventivas</span></div>
+        <div className="login-help"><strong>Acesso via Supabase Auth</strong><span>E-mail e senha configurados no painel do Supabase</span></div>
       </section>
     </main>
   );
 }
+
+export default App;
