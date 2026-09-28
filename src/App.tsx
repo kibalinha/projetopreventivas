@@ -170,7 +170,7 @@ function App() {
   // Map database boards to app format
   const boards: Board[] = useMemo(() => {
     if (!boardsData) return [];
-    return boardsData.map((b) => ({
+    return boardsData.map((b: typeof boardsData[0]) => ({
       ...b,
       id: b.id,
       code: b.code,
@@ -196,7 +196,7 @@ function App() {
 
   const inspectionHistory: InspectionRecord[] = useMemo(() => {
     if (!inspectionsData) return [];
-    return inspectionsData.map((i) => {
+    return inspectionsData.map((i: typeof inspectionsData[0]) => {
       const board = boards.find((b) => b.id === i.board_id);
       return {
         id: i.id,
