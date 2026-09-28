@@ -77,6 +77,20 @@ export const useProfile = (userId: string) => {
   });
 };
 
+export const useProfiles = () => {
+  return useQuery({
+    queryKey: ['profiles'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, username, role, created_at')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as Profile[];
+    },
+  });
+};
+
 export const useCreateBoard = () => {
   const queryClient = useQueryClient();
   return useMutation({

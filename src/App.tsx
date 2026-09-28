@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent, useEffect } from "react";
 import "./App.css";
 import { type Board, type ChecklistDefinition, type NonConformity } from "./lib/supabase";
-import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity } from "./hooks/useSupabase";
+import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useProfiles } from "./hooks/useSupabase";
 import { useAuthContext } from "./contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -140,6 +140,7 @@ function App() {
   const { data: checklistData } = useChecklistDefinitions(currentUser ? (boardsData?.[0]?.checklist_type as ChecklistType) || "QE-AC" : "QE-AC");
   const { data: inspectionsData } = useInspections();
   const { data: nonConformitiesData } = useNonConformities();
+  const { data: profilesData } = useProfiles();
   const queryClient = useQueryClient();
 
   const createBoardMutation = useCreateBoard();
@@ -1102,13 +1103,40 @@ function App() {
                     <p>Usuários criados no sistema (senhas criptografadas)</p>
                   </div>
                 </div>
-                <div className="empty-state">
-                  <span>ℹ</span>
-                  <strong>Gerenciamento interno</strong>
-                  <p>
-                    Usuários são criados diretamente no banco de dados com senha criptografada.
-                  </p>
-                </div>
+                {profilesData && profilesData.length > 0 ? (
+                  <div className="users-table-container">
+                    <table className="users-table">
+                      <thead>
+                        <tr>
+                          <th>Nome</th>
+                          <th>Usuário</th>
+                          <th>Papel</th>
+                          <th>Criado em</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {profilesData.map((profile) => (
+                          <tr key={profile.id}>
+                            <td>{profile.name}</td>
+                            <td>{profile.username}</td>
+                            <td>
+                              <span className={`role-badge ${profile.role}`}>
+                                {profile.role === 'supervisor' ? 'Supervisor' : 'Técnico'}
+                              </span>
+                            </td>
+                            <td>{new Date(profile.created_at).toLocaleDateString('pt-BR')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <span>ℹ</span>
+                    <strong>Nenhum usuário cadastrado</strong>
+                    <p>Use o formulário ao lado para criar o primeiro usuário.</p>
+                  </div>
+                )}
               </div>
             </div>
           </section>
