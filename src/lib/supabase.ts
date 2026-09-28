@@ -23,6 +23,7 @@ export type Board = {
   description: string;
   last_inspection: string | null;
   status: 'Em dia' | 'Pendente';
+  frequency: 'monthly' | 'semester' | 'annual';
   created_at: string;
   updated_at: string;
   // CamelCase aliases for app compatibility

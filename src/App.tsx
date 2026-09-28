@@ -110,6 +110,33 @@ const parseBrDate = (value: string) => {
   return new Date(year, month - 1, day).getTime();
 };
 
+const isBoardUpToDate = (lastInspectionDate: string | null, frequency: Board['frequency']): boolean => {
+  if (!lastInspectionDate) return false;
+  const lastDate = parseBrDate(lastInspectionDate);
+  if (isNaN(lastDate)) return false;
+  
+  const now = Date.now();
+  const monthsMap: Record<Board['frequency'], number> = {
+    monthly: 1,
+    semester: 6,
+    annual: 12,
+  };
+  const monthsAllowed = monthsMap[frequency] || 6;
+  const nextDue = new Date(lastDate);
+  nextDue.setMonth(nextDue.getMonth() + monthsAllowed);
+  
+  return now <= nextDue.getTime();
+};
+
+const getFrequencyLabel = (frequency: Board['frequency']): string => {
+  switch (frequency) {
+    case 'monthly': return 'Mensal';
+    case 'semester': return 'Semestral (6 meses)';
+    case 'annual': return 'Anual';
+    default: return 'Semestral (6 meses)';
+  }
+};
+
 const formatActivityDate = (value: string) => {
   const timestamp = parseBrDate(value);
   if (Number.isNaN(timestamp)) return value;
@@ -266,13 +293,13 @@ function App() {
 
   const filteredBoards = useMemo(
     () => {
-      console.log('filteredBoards input:', { boards, activeLocationFilter, boardStatusFilter, boardTypeFilter, search, lastInspectionByBoard });
       const result = boards
         .map((board) => {
           const last = lastInspectionByBoard.get(board.id);
+          const upToDate = last ? isBoardUpToDate(last, board.frequency) : false;
           return last
-            ? { ...board, status: "Em dia" as const, last_inspection: last }
-            : board;
+            ? { ...board, status: upToDate ? "Em dia" as const : "Pendente" as const, last_inspection: last }
+            : { ...board, status: "Pendente" as const };
         })
         .filter((board) => {
           const matchesSearch = `${board.code} ${board.location}`
@@ -283,7 +310,6 @@ function App() {
           const matchesLocation = activeLocationFilter === "Todos" || board.location === activeLocationFilter;
           return matchesSearch && matchesType && matchesStatus && matchesLocation;
         });
-      console.log('filteredBoards output:', result);
       return result;
     },
     [activeLocationFilter, boardStatusFilter, boardTypeFilter, boards, lastInspectionByBoard, search]
@@ -320,6 +346,7 @@ function App() {
       description: newBoard.description || "",
       status: "Pendente" as const,
       last_inspection: null,
+      frequency: newBoard.frequency || "semester",
     });
     setNewBoard({});
     setShowBoardForm(false);
@@ -937,6 +964,22 @@ function App() {
                       <option value="CT">CT Automação</option>
                     </select>
                   </label>
+                  <label>
+                    Frequência
+                    <select
+                      value={newBoard.frequency || "semester"}
+                      onChange={(event) =>
+                        updateNewBoardField(
+                          "frequency",
+                          event.target.value as Board['frequency'],
+                        )
+                      }
+                    >
+                      <option value="semester">Semestral (6 meses)</option>
+                      <option value="monthly">Mensal</option>
+                      <option value="annual">Anual</option>
+                    </select>
+                  </label>
                 </div>
                 <button className="primary-button" type="submit">
                   Salvar quadro
@@ -1183,7 +1226,7 @@ function App() {
                 </div>
                 <div className="inspection-meta">
                   <span>
-                    Periodicidade <strong>Mensal</strong>
+                    Periodicidade <strong>{getFrequencyLabel(selectedBoard.frequency)}</strong>
                   </span>
                   <span>
                     Responsável <strong>{currentUser?.name}</strong>
