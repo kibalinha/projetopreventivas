@@ -171,6 +171,7 @@ function App() {
   // Map database boards to app format
   const boards: Board[] = useMemo(() => {
     if (!boardsData) return [];
+    console.log('boardsData:', boardsData);
     return boardsData.map((b: typeof boardsData[0]) => ({
       ...b,
       id: b.id,
@@ -264,8 +265,9 @@ function App() {
   }, [inspectionHistory]);
 
   const filteredBoards = useMemo(
-    () =>
-      boards
+    () => {
+      console.log('filteredBoards input:', { boards, activeLocationFilter, boardStatusFilter, boardTypeFilter, search, lastInspectionByBoard });
+      const result = boards
         .map((board) => {
           const last = lastInspectionByBoard.get(board.id);
           return last
@@ -280,7 +282,10 @@ function App() {
           const matchesStatus = boardStatusFilter === "Todos" || board.status === boardStatusFilter;
           const matchesLocation = activeLocationFilter === "Todos" || board.location === activeLocationFilter;
           return matchesSearch && matchesType && matchesStatus && matchesLocation;
-        }),
+        });
+      console.log('filteredBoards output:', result);
+      return result;
+    },
     [activeLocationFilter, boardStatusFilter, boardTypeFilter, boards, lastInspectionByBoard, search]
   );
 
