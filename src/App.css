@@ -303,3 +303,19 @@
     border-right-color: var(--border);
   }
 }
+
+/* Users table styles */
+.users-table-container { overflow-x: auto; }
+.users-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.users-table th { padding: 12px 16px; text-align: left; color: #99a4b2; background: #fafbfd; font-size: 11px; font-weight: 700; border-bottom: 1px solid var(--line); }
+.users-table td { padding: 12px 16px; border-bottom: 1px solid #edf0f4; color: #526176; }
+.users-table tbody tr:hover { background: #f7faff; }
+.user-info { display: flex; flex-direction: column; gap: 2px; }
+.user-name { color: #263c56; font-size: 13px; font-weight: 500; }
+.user-username { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #7d8b9b; background: #f5f7fa; padding: 2px 6px; border-radius: 4px; display: inline-block; }
+.role-badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+.role-badge.supervisor { color: #1e6fb8; background: #e7f1ff; }
+.role-badge.tecnico { color: #238457; background: #e2f6eb; }
+.icon-button.danger { color: #c9514b; background: #fff8f7; border: 1px solid #f0d2cf; border-radius: 6px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.icon-button.danger:hover { background: #ffebeb; }
+.icon-button.danger:disabled { opacity: 0.5; cursor: not-allowed; }

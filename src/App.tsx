@@ -1174,19 +1174,18 @@ function App() {
                           <th>Usuário</th>
                           <th>Papel</th>
                           <th>Criado em</th>
-                          <th style={{ width: '80px' }}>Ações</th>
+                          <th style={{ width: '60px' }}>Ações</th>
                         </tr>
                       </thead>
                       <tbody>
                         {profilesData.map((profile) => (
                           <tr key={profile.id}>
                             <td>
-                              <div className="user-cell">
-                                <span className="user-avatar">{profile.name[0]?.toUpperCase()}</span>
-                                <span>{profile.name}</span>
+                              <div className="user-info">
+                                <span className="user-name">{profile.name}</span>
                               </div>
                             </td>
-                            <td><code>{profile.username}</code></td>
+                            <td><span className="user-username">{profile.username}</span></td>
                             <td>
                               <span className={`role-badge ${profile.role}`}>
                                 {profile.role === 'supervisor' ? 'Supervisor' : 'Técnico'}
