@@ -1624,28 +1624,15 @@ function Activity({
 }
 
 function LoginScreen() {
-  const { signIn, createUser } = useAuthContext();
+  const { signIn } = useAuthContext();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [role, setRole] = useState<'supervisor' | 'tecnico'>('tecnico');
   const [error, setError] = useState("");
-  const [isRegister, setIsRegister] = useState(false);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-      if (isRegister) {
-        if (!name) {
-          setError("Nome é obrigatório");
-          return;
-        }
-        await createUser(name, username, password, role);
-        setIsRegister(false);
-        setName("");
-      } else {
-        await signIn(username, password);
-      }
+      await signIn(username, password);
     } catch (err: any) {
       setError(err.message || "Erro ao fazer login");
     }
@@ -1656,26 +1643,14 @@ function LoginScreen() {
       <section className="login-panel">
         <div className="brand login-brand"><span className="brand-mark">P</span><span>Preventiva</span></div>
         <p className="eyebrow">BARRA SHOPPING SUL / MANUTENÇÃO</p>
-        <h1>{isRegister ? "Criar usuário" : "Acesse o sistema"}</h1>
-        <p className="login-subtitle">{isRegister ? "Cadastre um novo usuário no sistema" : "Entre com seu usuário e senha para executar ou administrar as preventivas."}</p>
+        <h1>Acesse o sistema</h1>
+        <p className="login-subtitle">Entre com seu usuário e senha para executar ou administrar as preventivas.</p>
         <form onSubmit={submit} className="login-form">
-          {isRegister && (
-            <label>Nome<input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="Nome completo" autoComplete="name" required /></label>
-          )}
           <label>Usuário<input type="text" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="seu.usuario" autoComplete="username" required /></label>
-          <label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" autoComplete={isRegister ? "new-password" : "current-password"} required /></label>
-          {isRegister && (
-            <label>Papel<select value={role} onChange={(event) => setRole(event.target.value as 'supervisor' | 'tecnico')}>
-              <option value="tecnico">Técnico</option>
-              <option value="supervisor">Supervisor</option>
-            </select></label>
-          )}
+          <label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" autoComplete="current-password" required /></label>
           {error && <p className="login-error">{error}</p>}
-          <button className="primary-button" type="submit">{isRegister ? "Cadastrar" : "Entrar no sistema"}</button>
+          <button className="primary-button" type="submit">Entrar no sistema</button>
         </form>
-        <button className="secondary-button" type="button" onClick={() => { setIsRegister(!isRegister); setError(""); }}>
-          {isRegister ? "Já tem conta? Entrar" : "Não tem conta? Criar usuário"}
-        </button>
         <div className="login-help"><strong>Acesso interno</strong><span>Usuário e senha cadastrados no sistema</span></div>
       </section>
     </main>
