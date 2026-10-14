@@ -75,6 +75,7 @@ export type NonConformity = {
   resolved_by: string | null;
   resolved_by_name: string | null;
   photo: string | null;
+  resolved_photo?: string | null;
   performed_by: string | null;
   performed_by_name: string;
   created_at: string;
@@ -87,6 +88,7 @@ export type NonConformity = {
   resolvedAt?: string | null;
   resolvedBy?: string | null;
   resolvedByName?: string | null;
+  resolvedPhoto?: string | null;
   performedBy?: string | null;
   performedByName?: string;
   items?: NonConformity[];

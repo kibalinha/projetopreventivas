@@ -8,7 +8,7 @@ interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
-import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateNonConformities, useUpdateNonConformity, useProfiles, useDeleteProfile, useUpdateProfile } from "./hooks/useSupabase";
+import { useBoards, useChecklistDefinitions, useInspections, useNonConformities, useCreateBoard, useUpdateBoard, useCreateInspection, useCreateInspectionItems, useCreateNonConformities, useUpdateNonConformity, useProfiles, useDeleteProfile, useUpdateProfile } from "./hooks/useSupabase";
 import { useAuthContext } from "./contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -26,6 +26,7 @@ type ChecklistItem = {
   note: string;
   photo?: string;
   definitionId?: string;
+  isExtra?: boolean;
 };
 
 type InspectionRecord = {
@@ -90,6 +91,9 @@ const checklistByType: Record<ChecklistType, string[]> = {
     "Borracha de vedação",
     "Pintura",
     "Porta documentos",
+    "Tubulação",
+    "Condulete",
+    "Eletroímã",
   ],
   CT: [
     "Acesso livre ao quadro",
@@ -111,10 +115,29 @@ const monthLabels = ["Abr", "Mai", "Jun", "Jul", "Ago", "Set"];
 
 const normalizeBoardCode = (code: string) => code.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-const parseBrDate = (value: string) => {
-  const [day, month, year] = value.split("/").map(Number);
-  if (!day || !month || !year) return Number.NaN;
-  return new Date(year, month - 1, day).getTime();
+const parseBrDate = (value: string | null | undefined): number => {
+  if (!value) return Number.NaN;
+  const str = String(value).trim();
+
+  // Suporte a formato ISO ou YYYY-MM-DD (padrão retornado pelo Supabase)
+  if (str.includes("-")) {
+    const datePart = str.split("T")[0];
+    const parts = datePart.split("-").map(Number);
+    if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+      return new Date(parts[0], parts[1] - 1, parts[2]).getTime();
+    }
+  }
+
+  // Suporte a formato brasileiro DD/MM/YYYY
+  if (str.includes("/")) {
+    const parts = str.split("/").map(Number);
+    if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+      return new Date(parts[2], parts[1] - 1, parts[0]).getTime();
+    }
+  }
+
+  const parsed = new Date(str).getTime();
+  return isNaN(parsed) ? Number.NaN : parsed;
 };
 
 const isBoardUpToDate = (lastInspectionDate: string | null, frequency: Board['frequency']): boolean => {
@@ -157,21 +180,91 @@ const formatActivityDate = (value: string) => {
 const defaultChecklistFor = (type: BoardType): ChecklistType =>
   type in checklistByType ? (type as ChecklistType) : "QE-AC";
 
-const makeChecklist = (type: ChecklistType, definitions: ChecklistDefinition[]): ChecklistItem[] => {
+const makeChecklist = (type: ChecklistType, definitions: ChecklistDefinition[] = []): ChecklistItem[] => {
   const labels = checklistByType[type] || checklistByType["QE-AC"];
-  return labels.map((label, index) => ({
-    id: definitions[index]?.id || String(index),
-    label,
-    answer: "Conforme" as InspectionAnswer,
+  const regularItems: ChecklistItem[] = labels.map((label, index) => {
+    const matchingDef = definitions.find(
+      (d) => d.label.trim().toLowerCase() === label.trim().toLowerCase()
+    ) || definitions[index];
+    return {
+      id: matchingDef?.id || `${type}-${index}`,
+      label,
+      answer: "Conforme" as InspectionAnswer,
+      note: "",
+      definitionId: matchingDef?.id,
+    };
+  });
+
+  const extraItem: ChecklistItem = {
+    id: `extra-item-${Date.now()}`,
+    label: "Item extra / Fora do padrão",
+    answer: "N/A" as InspectionAnswer,
     note: "",
-    definitionId: definitions[index]?.id,
-  }));
+    isExtra: true,
+  };
+
+  return [...regularItems, extraItem];
+};
+
+const compressImageFile = async (file: File, maxWidth = 1280, quality = 0.75): Promise<File> => {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/')) {
+      resolve(file);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            const cleanName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+            const compressed = new File([blob], cleanName, { type: 'image/jpeg' });
+            resolve(compressed);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = () => resolve(file);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
 };
 
 function App() {
   const { user: currentUser, loading: authLoading } = useAuthContext();
   const { data: boardsData } = useBoards();
-  const { data: checklistData } = useChecklistDefinitions(currentUser ? (boardsData?.[0]?.checklist_type as ChecklistType) || "QE-AC" : "QE-AC");
+  const [selectedBoardId, setSelectedBoardId] = useState<string>("");
+
+  const selectedBoardObj = useMemo(() => {
+    if (!boardsData || boardsData.length === 0) return null;
+    return boardsData.find((b) => b.id === selectedBoardId) || boardsData[0];
+  }, [boardsData, selectedBoardId]);
+
+  const activeChecklistType = (selectedBoardObj?.checklist_type as ChecklistType) || "QE-AC";
+  const { data: checklistData } = useChecklistDefinitions(currentUser ? activeChecklistType : "QE-AC");
   const { data: inspectionsData } = useInspections();
   const { data: nonConformitiesData } = useNonConformities();
   const { data: profilesData } = useProfiles();
@@ -180,6 +273,7 @@ function App() {
   const createBoardMutation = useCreateBoard();
   const updateBoardMutation = useUpdateBoard();
   const createInspectionMutation = useCreateInspection();
+  const createInspectionItemsMutation = useCreateInspectionItems();
   const createNonConformitiesMutation = useCreateNonConformities();
   const updateNonConformityMutation = useUpdateNonConformity();
   const deleteProfileMutation = useDeleteProfile();
@@ -188,7 +282,6 @@ function App() {
   const [activeView, setActiveView] = useState<
     "overview" | "boards" | "editBoards" | "inspection" | "issues" | "users" | "history"
   >("overview");
-  const [selectedBoardId, setSelectedBoardId] = useState<string>("");
   const [newBoard, setNewBoard] = useState<Partial<Board>>({});
   const [showBoardForm, setShowBoardForm] = useState(false);
   const [search, setSearch] = useState("");
@@ -217,8 +310,17 @@ function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
-  const [isStandalone, setIsStandalone] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
+  const [isStandalone] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+  });
+  const [isIOS] = useState(() => {
+    if (typeof navigator === 'undefined') return false;
+    return /iPad|iPhone|iPod/.test(navigator.userAgent);
+  });
+  const [showIOSBanner, setShowIOSBanner] = useState(() => {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('dismissed_ios_banner') !== 'true';
+  });
 
   // Camera state
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -227,14 +329,21 @@ function App() {
   const [cameraItemId, setCameraItemId] = useState<string | null>(null);
   const cameraRef = useRef<HTMLVideoElement>(null);
 
+  // Stop camera tracks on unmount to release hardware
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
   // Swipe state for checklist navigation
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
 
   // PWA Install handling
   useEffect(() => {
     const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    setIsIOS(isIOSDevice);
-    setIsStandalone(window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true);
 
     const handleBeforeInstallPrompt = (e: BeforeInstallPromptEvent) => {
       e.preventDefault();
@@ -263,7 +372,24 @@ function App() {
       window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-};
+    };
+  }, []);
+
+  // Sync active view with URL hash (useful for PWA shortcuts)
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      if (hash === "inspection") setActiveView("inspection");
+      else if (hash === "boards") setActiveView("boards");
+      else if (hash === "issues") setActiveView("issues");
+      else if (hash === "history") setActiveView("history");
+      else if (hash === "overview") setActiveView("overview");
+    };
+    if (window.location.hash) {
+      handleHash();
+    }
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
   }, []);
 
   // Swipe handlers for checklist navigation
@@ -295,6 +421,15 @@ function App() {
 
   const dismissInstallBanner = useCallback(() => {
     setShowInstallBanner(false);
+  }, []);
+
+  const dismissIOSBanner = useCallback(() => {
+    setShowIOSBanner(false);
+    try {
+      localStorage.setItem('dismissed_ios_banner', 'true');
+    } catch {
+      // Ignorar erro de localStorage
+    }
   }, []);
 
   const boards: Board[] = useMemo(() => {
@@ -349,13 +484,34 @@ function App() {
       });
   }, [inspectionHistory, historyBoardFilter, historyPersonFilter]);
 
-  // Load checklist when board changes
+  // Load checklist when board changes or restore draft from localStorage
   useEffect(() => {
     if (selectedBoard && checklistData) {
+      const draftKey = `preventiva_draft_${selectedBoard.id}`;
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) {
+        try {
+          const parsed = JSON.parse(savedDraft);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setChecklist(parsed);
+            return;
+          }
+        } catch {
+          localStorage.removeItem(draftKey);
+        }
+      }
       const type = selectedBoard.checklist_type as ChecklistType;
       setChecklist(makeChecklist(type, checklistData));
     }
   }, [selectedBoard, checklistData]);
+
+  // Auto-save draft in localStorage while inspecting
+  useEffect(() => {
+    if (selectedBoard && checklist.length > 0 && activeView === "inspection") {
+      const draftKey = `preventiva_draft_${selectedBoard.id}`;
+      localStorage.setItem(draftKey, JSON.stringify(checklist));
+    }
+  }, [checklist, selectedBoard, activeView]);
 
   // Locations
   const locationOptions = useMemo(() => {
@@ -450,6 +606,11 @@ function App() {
     event.preventDefault();
     const code = newBoard.code?.trim();
     if (!code) return;
+    const exists = boards.some((b) => normalizeBoardCode(b.code) === normalizeBoardCode(code));
+    if (exists) {
+      alert(`Já existe um quadro cadastrado com o código "${code}".`);
+      return;
+    }
     await createBoardMutation.mutateAsync({
       code,
       location: newBoard.location || "",
@@ -470,13 +631,34 @@ function App() {
     );
   };
 
+  const updateItemLabel = (id: string, label: string) => {
+    setChecklist((items) =>
+      items.map((item) => (item.id === id ? { ...item, label } : item))
+    );
+  };
+
+  const addExtraItem = () => {
+    const newItem: ChecklistItem = {
+      id: `extra-item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      label: "",
+      answer: "N/A",
+      note: "",
+      isExtra: true,
+    };
+    setChecklist((items) => [...items, newItem]);
+  };
+
+  const removeExtraItem = (id: string) => {
+    setChecklist((items) => items.filter((item) => item.id !== id));
+  };
+
   const updateNote = (id: string, note: string) => {
     setChecklist((items) =>
       items.map((item) => (item.id === id ? { ...item, note } : item))
     );
   };
 
-  const updatePhoto = async (id: string, file?: File) => {
+  const updatePhoto = useCallback(async (id: string, file?: File) => {
     if (!file) return;
 
     // Show loading state
@@ -487,15 +669,18 @@ function App() {
     );
 
     try {
+      // Otimiza e comprime imagem no cliente para envio rápido em conexões móveis
+      const fileToUpload = await compressImageFile(file, 1280, 0.75);
+
       // Generate unique filename
-      const ext = file.name.split('.').pop() || 'jpg';
+      const ext = fileToUpload.name.split('.').pop() || 'jpg';
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
       const filePath = `inspections/${fileName}`;
 
       // Upload to Supabase Storage
       const { error } = await supabase.storage
         .from('inspection-photos')
-        .upload(filePath, file, {
+        .upload(filePath, fileToUpload, {
           cacheControl: '3600',
           upsert: false,
         });
@@ -525,7 +710,7 @@ function App() {
         )
       );
     }
-  };
+  }, []);
 
   // Camera functions
   const startCamera = useCallback(async (itemId: string) => {
@@ -640,10 +825,14 @@ function App() {
     ? 100
     : Math.round((resolvedIssues / nonConformityList.length) * 100);
   const inspectionChart = monthLabels.map((month, index) => {
-    const monthNumber = String(index + 4).padStart(2, "0");
+    const targetMonth = index + 3; // "Abr" (3) a "Set" (8)
     const count = new Set(
       inspectionHistory
-        .filter((inspection) => inspection.date.slice(3, 5) === monthNumber)
+        .filter((inspection) => {
+          const ts = parseBrDate(inspection.date);
+          if (isNaN(ts)) return false;
+          return new Date(ts).getMonth() === targetMonth;
+        })
         .map((inspection) => inspection.id),
     ).size;
     return { month, count };
@@ -710,24 +899,37 @@ function App() {
   const setCompleted = async (value: boolean) => {
     if (!selectedBoard || !currentUser) return;
 
-    // Check if all items have an answer
-    const unanswered = checklist.filter((item) => !item.answer);
+    // Check if all regular items have an answer
+    const unanswered = checklist.filter((item) => !item.isExtra && !item.answer);
     if (unanswered.length > 0) {
       alert(`${unanswered.length} item(ns) sem resposta. Por favor, responda todos os itens.`);
       return;
     }
 
     try {
+      const inspectionDate = new Date().toISOString().split('T')[0];
       // First create the inspection (DB generates UUID)
       const inspectionRecord = {
         board_id: selectedBoard.id,
         performed_by: currentUser?.id || null,
         performed_by_name: currentUser?.name || "",
-        date: new Date().toISOString().split('T')[0],
+        date: inspectionDate,
       };
 
       const inspection = await createInspectionMutation.mutateAsync(inspectionRecord as any);
       const inspectionId = inspection.id; // Use the DB-generated UUID
+
+      // Save all inspection items for full audit trail
+      if (checklist.length > 0) {
+        const inspectionItems = checklist.map((item) => ({
+          inspection_id: inspectionId,
+          checklist_definition_id: item.definitionId || item.id,
+          answer: item.answer,
+          note: item.isExtra && item.label ? `[Extra: ${item.label}] ${item.note || ''}`.trim() : (item.note || ""),
+          photo: item.photo && item.photo !== 'loading' ? item.photo : null,
+        }));
+        await createInspectionItemsMutation.mutateAsync(inspectionItems as any);
+      }
 
       // Then create non-conformities with the real inspection UUID
       if (value && nonConformities > 0) {
@@ -739,23 +941,36 @@ function App() {
             board_code: selectedBoard.code,
             location: selectedBoard.location,
             type: selectedBoard.checklist_type,
-            item: item.label,
-            description: item.note || "Item reprovado durante a inspeção.",
-            photo: item.photo || null,
+            item: item.isExtra ? (item.label.trim() || "Item fora do padrão") : item.label,
+            description: item.note || (item.isExtra ? "Item fora do padrão reprovado durante a inspeção." : "Item reprovado durante a inspeção."),
+            photo: item.photo && item.photo !== 'loading' ? item.photo : null,
             performed_by: currentUser.id,
             performed_by_name: currentUser.name,
-            date: new Date().toISOString().split('T')[0],
+            date: inspectionDate,
             priority: "Alta" as const,
             status: "Aberta" as const,
           }));
         await createNonConformitiesMutation.mutateAsync(newIssues as any);
       }
 
+      // Update board last_inspection in database so it is persisted
+      await updateBoardMutation.mutateAsync({
+        id: selectedBoard.id,
+        last_inspection: inspectionDate,
+        status: "Em dia",
+      });
+
+      // Limpa o rascunho local do quadro concluído
+      localStorage.removeItem(`preventiva_draft_${selectedBoard.id}`);
+
       queryClient.invalidateQueries({ queryKey: ['boards'] });
+      queryClient.invalidateQueries({ queryKey: ['inspections'] });
+      queryClient.invalidateQueries({ queryKey: ['inspection_items'] });
+      queryClient.invalidateQueries({ queryKey: ['non_conformities'] });
       setCompletionModal(value);
     } catch (err: any) {
-      alert("Erro ao finalizar: " + (err.message || "Erro desconhecido"));
       console.error(err);
+      alert("Erro ao enviar para o servidor: " + (err.message || "Erro de conexão") + ".\n\nO rascunho desta preventiva permanece salvo neste aparelho para você tentar novamente assim que a conexão restabelecer.");
     }
   };
 
@@ -770,6 +985,41 @@ function App() {
       resolved_by_name: status === "Resolvida" && currentUser ? currentUser.name : null,
     });
   };
+
+  const updateResolutionPhoto = useCallback(async (issueId: string, file?: File) => {
+    if (!file) return;
+    try {
+      const fileToUpload = await compressImageFile(file, 1280, 0.75);
+      const ext = fileToUpload.name.split('.').pop() || 'jpg';
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+      const filePath = `resolutions/${fileName}`;
+
+      const { error } = await supabase.storage
+        .from('inspection-photos')
+        .upload(filePath, fileToUpload, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (error) throw error;
+
+      const { data: urlData } = supabase.storage
+        .from('inspection-photos')
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+
+      await updateNonConformityMutation.mutateAsync({
+        id: issueId,
+        resolved_photo: publicUrl,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['non_conformities'] });
+    } catch (err: any) {
+      console.error('Resolution photo upload failed:', err);
+      alert('Erro ao enviar foto da solução: ' + (err.message || 'Erro desconhecido'));
+    }
+  }, [queryClient, updateNonConformityMutation]);
 
   if (authLoading) return <div className="loading">Carregando...</div>;
   if (!currentUser) return <LoginScreen />;
@@ -950,6 +1200,7 @@ function App() {
                 <IssueCard
                   issue={issue}
                   onStatusChange={updateIssueStatus}
+                  onUploadResolutionPhoto={updateResolutionPhoto}
                   key={issue.id}
                 />
               ))}
@@ -1358,10 +1609,41 @@ function App() {
               {filteredBoards.map((board) => (
                 <div className="table-row editing-row" key={board.id}>
                   <span className="board-name edit-fields">
-                    <input value={board.code} onChange={(event) => updateBoardField(board.id, "code", event.target.value)} aria-label={`Código do quadro ${board.code}`} />
-                    <input value={board.description} onChange={(event) => updateBoardField(board.id, "description", event.target.value)} aria-label={`Descrição do quadro ${board.code}`} />
+                    <input
+                      defaultValue={board.code}
+                      key={`code-${board.id}`}
+                      onBlur={(event) => {
+                        const val = event.target.value.trim();
+                        if (val && val !== board.code) {
+                          updateBoardField(board.id, "code", val);
+                        }
+                      }}
+                      aria-label={`Código do quadro ${board.code}`}
+                    />
+                    <input
+                      defaultValue={board.description}
+                      key={`desc-${board.id}`}
+                      onBlur={(event) => {
+                        const val = event.target.value;
+                        if (val !== board.description) {
+                          updateBoardField(board.id, "description", val);
+                        }
+                      }}
+                      aria-label={`Descrição do quadro ${board.code}`}
+                    />
                   </span>
-                  <input className="inline-input" value={board.location} onChange={(event) => updateBoardField(board.id, "location", event.target.value)} aria-label={`Local do quadro ${board.code}`} />
+                  <input
+                    className="inline-input"
+                    defaultValue={board.location}
+                    key={`loc-${board.id}`}
+                    onBlur={(event) => {
+                      const val = event.target.value;
+                      if (val !== board.location) {
+                        updateBoardField(board.id, "location", val);
+                      }
+                    }}
+                    aria-label={`Local do quadro ${board.code}`}
+                  />
                   <select className="inline-input" value={board.type} onChange={(event) => updateBoardField(board.id, "type", event.target.value as BoardType)} aria-label={`Tipo do quadro ${board.code}`}>
                     <option value="QLF">QLF</option><option value="CM">CM</option><option value="QE-AC">QE-AC</option><option value="CT">CT Automação</option><option value="CD">CD</option><option value="QF">QF</option><option value="QLC">QLC</option><option value="QCR">QCR</option><option value="QRC">QRC</option><option value="QE-CAG">QE-CAG</option><option value="Outros">Outros</option>
                   </select>
@@ -1416,6 +1698,13 @@ function App() {
                               <td colSpan={5} style={{ padding: '16px' }}>
                                 <form onSubmit={async (e) => {
                                   e.preventDefault();
+                                  if (profile.role === "supervisor" && editUserRole !== "supervisor") {
+                                    const supervisorCount = profilesData?.filter((p) => p.role === "supervisor").length || 0;
+                                    if (supervisorCount <= 1) {
+                                      alert("Não é possível alterar o papel do único supervisor cadastrado no sistema.");
+                                      return;
+                                    }
+                                  }
                                   const updates: { id: string; name: string; username: string; role: 'supervisor' | 'tecnico'; password_hash?: string } = {
                                     id: profile.id,
                                     name: editUserName,
@@ -1520,6 +1809,15 @@ function App() {
                                     <button
                                       className="icon-button danger"
                                       onClick={() => {
+                                        if (profile.id === currentUser?.id) {
+                                          alert("Você não pode excluir o seu próprio usuário logado.");
+                                          return;
+                                        }
+                                        const supervisorCount = profilesData?.filter((p) => p.role === "supervisor").length || 0;
+                                        if (profile.role === "supervisor" && supervisorCount <= 1) {
+                                          alert("Não é possível excluir o único supervisor do sistema.");
+                                          return;
+                                        }
                                         if (confirm(`Excluir usuário "${profile.name}" (${profile.username})?`)) {
                                           deleteProfileMutation.mutate(profile.id);
                                         }
@@ -1657,12 +1955,42 @@ function App() {
         {activeView === "inspection" && selectedBoard && (
           <section className="inspection-view">
             <div className="inspection-head">
-              <button
-                className="back-button"
-                onClick={() => setActiveView("boards")}
-              >
-                ← Voltar para quadros
-              </button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className="back-button"
+                  onClick={() => {
+                    const hasModifications = checklist.some(
+                      (item) => item.answer !== "Conforme" || item.note.trim() !== "" || item.photo
+                    );
+                    if (hasModifications) {
+                      if (confirm("Você tem itens alterados ou fotos nesta inspeção. O rascunho permanecerá salvo neste aparelho. Deseja realmente voltar?")) {
+                        setActiveView("boards");
+                      }
+                    } else {
+                      setActiveView("boards");
+                    }
+                  }}
+                >
+                  ← Voltar para quadros
+                </button>
+                {checklist.some((item) => item.answer !== "Conforme" || item.note.trim() !== "" || item.photo) && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    style={{ fontSize: '11px', padding: '6px 10px', borderRadius: '4px', border: '1px solid #d6e0ea', background: '#fff', color: '#627d98', cursor: 'pointer', fontWeight: 600 }}
+                    onClick={() => {
+                      if (confirm("Deseja realmente descartar o rascunho atual e recomeçar este checklist?")) {
+                        localStorage.removeItem(`preventiva_draft_${selectedBoard.id}`);
+                        const type = selectedBoard.checklist_type as ChecklistType;
+                        setChecklist(makeChecklist(type, checklistData));
+                      }
+                    }}
+                    title="Descartar rascunho e recomeçar"
+                  >
+                    ↺ Recomeçar
+                  </button>
+                )}
+              </div>
               <div className="inspection-title">
                 <div>
                   <p className="eyebrow">
@@ -1688,7 +2016,7 @@ function App() {
             <div className="progress-line">
               <span
                 style={{
-                  width: `${Math.round((checklist.filter((item) => item.answer !== "Conforme").length / checklist.length) * 100) || 8}%`,
+                  width: `${checklist.length > 0 ? Math.round((checklist.filter((item) => Boolean(item.answer)).length / checklist.length) * 100) : 0}%`,
                 }}
               />
             </div>
@@ -1696,10 +2024,10 @@ function App() {
             {/* Mobile Checklist Progress & Swipe Hint */}
             <div className="checklist-progress" role="status" aria-live="polite">
               <div className="progress-indicator">
-                <span style={{ width: `${checklist.length > 0 ? Math.round((checklist.filter(i => i.answer !== "Conforme").length / checklist.length) * 100) : 0}%` }} />
+                <span style={{ width: `${checklist.length > 0 ? Math.round((checklist.filter(i => Boolean(i.answer)).length / checklist.length) * 100) : 0}%` }} />
               </div>
               <span className="progress-text">
-                {checklist.filter(i => i.answer !== "Conforme").length} / {checklist.length}
+                {checklist.filter(i => Boolean(i.answer)).length} / {checklist.length} itens avaliados
               </span>
             </div>
             <p className="swipe-hint">Deslize para navegar entre os itens</p>
@@ -1727,20 +2055,42 @@ function App() {
                 <div className="checklist-items">
                   {checklist.map((item, index) => (
                     <div
-                      className={
-                        item.answer === "Não conforme"
-                          ? "check-item issue"
-                          : "check-item"
-                      }
+                      className={`check-item ${item.answer === "Não conforme" ? "issue" : ""} ${item.isExtra ? "extra-item" : ""}`}
                       key={item.id}
                       onTouchStart={handleTouchStart}
                       onTouchEnd={handleTouchEnd}
                     >
                       <div className="item-number">
-                        {String(index + 1).padStart(2, "0")}
+                        {item.isExtra ? "✦" : String(index + 1).padStart(2, "0")}
                       </div>
                       <div className="item-content">
-                        <strong>{item.label}</strong>
+                        {item.isExtra ? (
+                          <div style={{ marginBottom: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <span className="extra-badge">✦ Fora do padrão</span>
+                              {checklist.filter((i) => i.isExtra).length > 1 && (
+                                <button
+                                  type="button"
+                                  className="remove-extra-btn"
+                                  onClick={() => removeExtraItem(item.id)}
+                                  title="Remover este item extra"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                            <input
+                              className="extra-label-input"
+                              value={item.label}
+                              onChange={(event) =>
+                                updateItemLabel(item.id, event.target.value)
+                              }
+                              placeholder="Descreva o que encontrou fora do padrão..."
+                            />
+                          </div>
+                        ) : (
+                          <strong>{item.label}</strong>
+                        )}
                         {item.answer === "Não conforme" && (
                           <>
                             <input
@@ -1816,6 +2166,15 @@ function App() {
                       </div>
                     </div>
                   ))}
+                </div>
+                <div className="add-extra-container">
+                  <button
+                    type="button"
+                    className="add-extra-button"
+                    onClick={addExtraItem}
+                  >
+                    <span>+</span> Adicionar outro item fora do padrão
+                  </button>
                 </div>
                 <div className="inspection-footer">
                   <span>
@@ -1941,7 +2300,7 @@ function App() {
       )}
 
       {/* iOS Install Hint */}
-      {isIOS && !isStandalone && !showInstallBanner && (
+      {isIOS && !isStandalone && showIOSBanner && !showInstallBanner && (
         <div className="pwa-install-banner visible" style={{ bottom: isOnline ? '90px' : '130px' }} role="dialog" aria-label="Instalar no iOS">
           <div className="pwa-install-content">
             <div className="pwa-install-icon">▤</div>
@@ -1950,7 +2309,7 @@ function App() {
               <small>Toque em Compartilhar → Adicionar à Tela Inicial para instalar</small>
             </div>
             <div className="pwa-install-actions">
-              <button className="secondary-button" onClick={dismissInstallBanner}>
+              <button className="secondary-button" onClick={dismissIOSBanner}>
                 Entendi
               </button>
             </div>
@@ -2082,9 +2441,11 @@ function IssueStat({
 function IssueCard({
   issue,
   onStatusChange,
+  onUploadResolutionPhoto,
 }: {
   issue: NonConformity;
   onStatusChange: (id: string, status: NonConformityStatus) => void;
+  onUploadResolutionPhoto?: (id: string, file: File) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const items = issue.items || [issue];
@@ -2114,7 +2475,7 @@ function IssueCard({
               </p>
               {items.some((item) => item.resolved_by_name) && (
                 <p className="resolvers-info">
-                  Resolvidos por: {Array.from(new Set(items.filter(i => i.resolved_by_name).map(i => i.resolved_by_name))).join(', ')}
+                  Resolvidos por: {Array.from(new Set(items.filter((i) => i.resolved_by_name).map((i) => i.resolved_by_name))).join(', ')}
                 </p>
               )}
             </div>
@@ -2132,14 +2493,50 @@ function IssueCard({
         <div className="issue-detail-list">
           <div className="issue-detail-header">
             <strong>Itens para resolver</strong>
-            <span>Atualize o status de cada ocorrência</span>
+            <span>Atualize o status e registre foto da solução</span>
           </div>
           {items.map((item: NonConformity) => (
             <div className="issue-detail-row" key={item.id}>
               <div>
                 <strong>{item.item}</strong>
                 <p>{item.description}</p>
-                {item.photo && <a className="issue-photo-link" href={item.photo} target="_blank" rel="noreferrer"><img className="issue-photo" src={item.photo} alt={`Foto da não conformidade: ${item.item}`} /><span>Visualizar foto</span></a>}
+                <div className="issue-photos-container">
+                  {item.photo && (
+                    <div className="photo-box">
+                      <span className="photo-badge before">Antes (Problema)</span>
+                      <a className="issue-photo-link" href={item.photo} target="_blank" rel="noreferrer">
+                        <img className="issue-photo" src={item.photo} alt={`Foto do problema: ${item.item}`} />
+                      </a>
+                    </div>
+                  )}
+                  {item.resolved_photo && (
+                    <div className="photo-box">
+                      <span className="photo-badge after">✓ Depois (Solução)</span>
+                      <a className="issue-photo-link" href={item.resolved_photo} target="_blank" rel="noreferrer">
+                        <img className="issue-photo" src={item.resolved_photo} alt={`Foto da solução: ${item.item}`} />
+                      </a>
+                    </div>
+                  )}
+                </div>
+                {onUploadResolutionPhoto && (
+                  <div style={{ marginTop: 6, marginBottom: 8 }}>
+                    <label className="photo-upload resolution-upload-btn">
+                      <span>{item.resolved_photo ? "📷 Trocar foto da solução (Depois)" : "📷 Adicionar foto da solução (Depois)"}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) {
+                            onUploadResolutionPhoto(item.id, file);
+                          }
+                        }}
+                        aria-label={`Foto da solução para ${item.item}`}
+                      />
+                    </label>
+                  </div>
+                )}
                 <div className="issue-detail-badges">
                   <span className={`priority ${item.priority.toLowerCase()}`}>
                     {item.priority}
